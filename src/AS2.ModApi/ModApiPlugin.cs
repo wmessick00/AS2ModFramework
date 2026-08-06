@@ -1,0 +1,85 @@
+using System;
+using BepInEx;
+using BepInEx.Logging;
+using HarmonyLib;
+using UnityEngine;
+
+namespace AS2.ModApi
+{
+    /// <summary>
+    /// Loads the shared API and applies its patches. Mods depend on this with
+    /// [BepInDependency(ModApiPlugin.Id)] and then talk only to <see cref="AS2Events"/>.
+    /// </summary>
+    [BepInPlugin(Id, "Audiosurf 2 Mod API", Version)]
+    public sealed class ModApiPlugin : BaseUnityPlugin
+    {
+        public const string Id = "as2.modapi";
+        public const string Version = "0.1.0";
+
+        /// <summary>
+        /// Exposed statically so the rest of the assembly can log without threading a reference
+        /// through every call. BepInEx gives each plugin its own tagged source, so these lines are
+        /// attributed to the API rather than to whichever mod happened to trigger them.
+        /// </summary>
+        internal static ManualLogSource Log;
+
+        private Harmony _harmony;
+
+        private void Awake()
+        {
+            Log = Logger;
+
+            try
+            {
+                _harmony = new Harmony(Id);
+                Patches.ApplyAll(_harmony);
+                Log.LogInfo("Mod API ready. Game root: " + TargetResolver.GameRoot);
+            }
+            catch (Exception e)
+            {
+                // A broken API must not stop the game or the other plugins from loading.
+                Log.LogError("Mod API failed to initialise; events will not fire. " + e);
+            }
+        }
+
+        /// <summary>
+        /// The API owns the single "Mod Menu" button in the game's settings dialog and the hub
+        /// behind it, so that mods do not each add a button and overflow the row.
+        /// </summary>
+        private void OnGUI()
+        {
+            try
+            {
+                AS2Ui.EnsureStyles();
+                GUI.depth = -900;
+                AS2ModMenu.Draw();
+            }
+            catch (Exception e)
+            {
+                Log.LogError("Mod Menu drawing failed; closing it. " + e);
+                AS2ModMenu.Close();
+            }
+        }
+
+        private void OnDestroy()
+        {
+            try { if (_harmony != null) _harmony.UnpatchSelf(); }
+            catch (Exception e) { Log.LogWarning("Could not unpatch cleanly: " + e.Message); }
+        }
+    }
+
+    /// <summary>
+    /// Small .NET 3.5 gap-fillers. The game runs Unity 2017's legacy Mono profile, so anything
+    /// added in .NET 4 is unavailable -- no string.IsNullOrWhiteSpace, no Task, no ValueTuple.
+    /// </summary>
+    internal static class Str
+    {
+        public static bool IsBlank(string s)
+        {
+            if (string.IsNullOrEmpty(s)) return true;
+            for (int i = 0; i < s.Length; i++)
+                if (!char.IsWhiteSpace(s[i])) return false;
+            return true;
+        }
+    }
+}

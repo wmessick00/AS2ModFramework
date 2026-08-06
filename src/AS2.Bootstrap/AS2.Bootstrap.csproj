@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Deliberately references nothing but mscorlib and System (inherited from Directory.Build.props).
+
+    This assembly runs at Doorstop time, before Unity has registered its internal calls. Touching a
+    UnityEngine API here does not merely fail; it can poison the binding for the whole process.
+    (A Debug.Log call at this point throws MissingMethodException on DebugLogHandler.Internal_Log,
+    Mono caches the failed binding, and the game's own startup code dies later on.) So there is no
+    UnityEngine reference to accidentally reach for.
+  -->
+
+  <PropertyGroup>
+    <AssemblyName>AS2.Bootstrap</AssemblyName>
+    <RootNamespace>AS2.Bootstrap</RootNamespace>
+    <OutputPath>$(MSBuildThisFileDirectory)..\..\build\AS2ModLoader\</OutputPath>
+  </PropertyGroup>
+
+</Project>

@@ -1,0 +1,508 @@
+﻿AS2.Probe member dump
+Generated 2026-08-05 18:25:04
+
+### LuaSandbox   (assembly: Assembly-CSharp)
+  -- fields --
+    static private Action`2 postSandbox
+    static private Action`2 preSandbox
+    static private HashSet`1 _sceneBlacklist
+    static private HashSet`1 _sceneWhitelist
+    static private int _lastLoadedSceneIndex
+    static private Type[] _ComponentBlacklist
+    static public bool fullSecuritySandbox
+    static public string Library
+  -- methods --
+    static private bool _SandboxCanLoad(Object payload, Type[] component_blacklist)
+    static private bool _SandboxCanLoad(Object[] payload, Type[] component_blacklist)
+    static private bool _SandboxCanTouchComponent(Component c)
+    static private bool _SandboxCanTouchObject(Object o, Type type)
+    static private bool _SandboxCanTouchScene(Scene scene)
+    static private bool _SceneIsBuiltIn(int buildIndex)
+    static private bool _SceneIsBuiltIn(Scene scene)
+    static private void _AddSandboxObjectFilter(Lua interpreter)
+    static private void _CheckScene(Scene scene, LoadSceneMode mode)
+    static private void _OnSceneLoaded(Scene scene, LoadSceneMode mode)
+    static private void _SceneCheckerInit()
+    static private void _UnloadDangerousObject(Object o)
+    static private void LogBlacklist(string message, Object ctx)
+    static private void LogBlacklist(string message, Scene scene)
+    static public bool CheckLoadedObject(Object payload)
+    static public bool CheckLoadedObjects(Object[] payload)
+    static public Lua NewLua(string name)
+    static public void add_postSandbox(Action`2 value)
+    static public void add_preSandbox(Action`2 value)
+    static public void LoadSafeTypes(Lua lua)
+    static public void remove_postSandbox(Action`2 value)
+    static public void remove_preSandbox(Action`2 value)
+    static public void Sandboxify(Lua lua)
+
+### LuaController   (assembly: Assembly-CSharp)
+  -- fields --
+    private bool hasCompiled
+    private bool shouldRun
+    private Killswitch[] cubes
+    private string codeStatus
+    private string runtimeStatus
+    public List`1 LuaUpdateFunction
+    public SceneManager sm
+    public Spectrum musicPlayer
+    public string runtimeError
+    public string syntaxError
+    public TextAsset luaScript
+    static private BundleLoader bundleLoader
+    static public int keepAliveCode
+    static public Lua lua
+  -- methods --
+    private void Awake()
+    private void LateUpdate()
+    private void OnDisable()
+    private void Start()
+    public Double GetCurrentTrackLocation()
+    public void DoCode(string code, string path)
+    public void DoCodeExternalFile(string code)
+    public void write(Object o)
+
+### LuaMods   (assembly: Assembly-CSharp)
+  -- fields --
+    private BundleLoader bundleLoader
+    private Dictionary`2 batchRenderers
+    private Dictionary`2 clones
+    private InputDevice[] keyboardDevices
+    private int intensityShaderNameID
+    private int intensitySigmoidShaderNameID
+    private int numClonesCreated
+    private int prevInputManagerDeviceCount
+    private List`1 gamepadDevices
+    private List`1 LuaLateUpdateFunction
+    private List`1 LuaUpdateFunction
+    private Lua lua
+    private LuaFunction LuaCoroutineUpdateFunction
+    private Object[] args
+    private Object[] coroutineUpdateArgs
+    private Object[] largs
+    private Object[] overfillArgs
+    private Object[] puzzleCollectingArgs
+    static public bool allowLuaUpdateFunction
+    static public bool allowTrickScoreWindow
+    static public bool currentlyInOnPuzzleCollecting
+    static public bool currentlyInSetPuzzle
+    static public bool hasReloadedOnFileChange
+    static public LuaMods instance
+  -- methods --
+    private void <SendCommands>b__81_0(LuaValue key, Object value)
+    private void Awake()
+    private void BeforeBuildHighway()
+    private void HighwayBuilt_ModTime(Node[] rings)
+    private void InitLua()
+    private void OnDisable()
+    private void OnEnable()
+    private void OnGameplayStart_EarlyOne()
+    private void OnPlayerCrashLandedFromDistanceTime(int dist, float time)
+    private void OnPlayerLandedFromDistance(int dist, float time)
+    private void OnPlayerLandedOrCrashLanded(int dist, float time, bool isCrash)
+    private void OnRequestTrackReshaping()
+    private void OnSkinCodeAboutToRun()
+    private void OnTrafficBuilt_EarlyOne(Block[] blocks)
+    private void OnTrickDone(int trickID, int trickPoints)
+    private void OnTrickStarted(int trickID)
+    private void Start()
+    private void Update()
+    public bool GetSetting_AutoCenterPreferred()
+    public Double GetCurrentTrackLocation()
+    public Double GetMillisecondsSinceStartup()
+    public Double GetSetting_MouseSpeed()
+    public Double GetTrickMultiplier()
+    public int GetQualityLevel()
+    public LuaTable GetBlockColors()
+    public LuaTable GetCurrentTrackWorldPosition()
+    public LuaTable GetInput()
+    public LuaTable GetJumpHeights(LuaTable table)
+    public LuaTable GetPuzzle()
+    public LuaTable GetPuzzleRowLocations()
+    public LuaTable GetTrack()
+    public Nullable`1 GetClone(string name)
+    public void AddMinimapMarkers(LuaTable table)
+    public void BatchRender(LuaTable table)
+    public void BatchRenderEveryFrame(LuaTable table)
+    public void ChangeTraffic(LuaTable table)
+    public void CreateClone(LuaTable table)
+    public void DoCode(string code, string path)
+    public void DoJump()
+    public void DoTrick(Double tid)
+    public void FlashAirDebris(LuaTable table)
+    public void GameplaySettings(LuaTable table)
+    public void HideBuiltinPlayerObjects()
+    public void HideTraffic(LuaTable table)
+    public void HitTraffic(LuaTable table)
+    public void LateLateUpdate()
+    public void OnBlockAddedToPuzzle()
+    public void OnPlayerHeightEstablished(float playerHead_YPos)
+    public void OnPlayerJumpedFromRingWithMultiplier(float airSeconds, int jumpFirstRing, float trickMultiplier)
+    public void OnPuzzleCollectingMatches(bool isForceClear)
+    public void OnPuzzleOverfill(int col)
+    public void OnRequestFinalScoring()
+    public void PlayBuiltInSound(LuaTable table)
+    public void PlaySound(LuaTable table)
+    public void printFromLua(Object o)
+    public void RumbleActiveGamepad(Double left, Double right)
+    public void SendCommand(LuaTable table)
+    public void SendCommands(LuaTable table)
+    public void SetBlockColors(LuaTable table)
+    public void SetCamera(LuaTable table)
+    public void SetGlobalScore(LuaTable table)
+    public void SetLocalScore(LuaTable table)
+    public void SetPlayerExtraRot(LuaTable table)
+    public void SetPlayerStrafe(Double strafe)
+    public void SetPuzzle(LuaTable table)
+    public void SetRenderViewports(LuaTable table)
+    public void SetScoreboardNote(LuaTable table)
+    public void SetSkinProperties(LuaTable table)
+    public void SetTricksEnabled(LuaTable table)
+    public void UpdateBatchRenderer(LuaTable table)
+    static private LuaTable buildPlayerTable(LuaTable mouseTable, InputDevice gamepad, InputDevice keyboard, bool player1)
+    static public float Sigmoid(float value)
+    static public LuaTable BuildFreqTrafficLuaTable(Lua luaState)
+    static public LuaTable BuildHighwayLuaTable(Lua luaState, Node[] rings, bool skin)
+    static public LuaTable BuildTrafficLuaTable(Lua luaState, Block[] blocks)
+    static public void BlockLuaEventsWhileShittingDownScene()
+
+### RingDesignManager   (assembly: Assembly-CSharp)
+  -- fields --
+    private bool confirmAnswerIsOK
+    private bool hasGivenFocustoInitialGamepadHover
+    private bool hasSelectedADesign
+    private bool waitingForConfirm
+    private int biggestRowNum
+    private int colCount
+    private int dedicatedSkinsAdded
+    private int firstLockedID
+    private int firstRowUnderWorkshopLink
+    private int numTexturesLoadedSoFar
+    private Int32[] countsPerCol
+    private IUIListObject currentRowParent
+    private List`1 rowParents
+    private List`1 uigrid
+    private UIGamepadCompass prevCompassInThisRow
+    private UIGamepadCompass workshopLinkParentCompass
+    public EASING_TYPE firstSlideIn
+    public GameObject confirmDialog
+    public GameObject prefab_ListItem
+    public GameObject prefab_ListRowHeading
+    public GameObject prefab_ListRowHeadingWithLink
+    public GameObject prefab_ListRowParent
+    public GameObject scrollListRootGO
+    public UIScrollList scrollList
+    static private bool dedicatedSkins
+    static private Dictionary`2 cachedModeMicroTips
+    static private Dictionary`2 cachedModeTips
+    static private Dictionary`2 uiTextures
+    static private int numTimesCalledFindSkins
+    static private List`1 skinFolders_IsDedicated
+    static private List`1 skinFolders_IsFromWorkshop
+    static private RingDesign[] designs
+    static private string relativePath
+    static public bool hasFinishedLoadingAtLeastOnce
+    static public bool selectedSkinIsDedicated
+    static public bool shouldAutoAdvanceAfterSelection
+    static public GameObject static_scrollListGO_nonDedicatedSkins
+    static public RingDesign selectedSkin
+    static public string selectedSkinFriendlyName
+    static public string selectedSkinRelativePath
+    static public string skinsPath
+    static public String[] skinFolders
+    static public Vector3 listPosition
+  -- methods --
+    private GameObject AddListItem(string itemText, UIGamepadCompass scrollListCompass, int modIndex, int col, bool isLocked, string tooltip, bool isUploadable, bool isDeletable, int minRow)
+    private IEnumerator AskUploadSkin(int index)
+    private IEnumerator PopupConfirmDialog(string heading, string okText, string cancelText)
+    private RingDesign AddDesignToUI(RingDesign design, int col, int minRow, UIGamepadCompass scrollListCompass, bool allowUpload)
+    private void ConfigureItemCompasses()
+    private void FindDesignAndAddItToUI(string name, RingDesign[]& ds, int col, UIGamepadCompass scrollListCompass)
+    private void OnDisable()
+    private void OnEnable()
+    private void OnListItemCommentSelected(int index)
+    private void OnListItemDeleteSelected(int index)
+    private void OnListItemUploadSelected(int index)
+    private void OnUnsubscribeUGCComplete(bool isSkin)
+    private void RetargetWorkshopButtonDeletgatesToThisInstance()
+    public IEnumerator AskDeleteSkin(int index)
+    public IEnumerator Init()
+    public void CommentButtonSelectedDelegate(IUIObject obj)
+    public void DeleteButtonSelectedDelegate(IUIObject obj)
+    public void ItemSelectedDelegate(IUIObject obj)
+    public void OnListItemSelected(int index, GameObject tile)
+    public void OnModalConfirm(bool b)
+    public void OnSkinUITextureLoaded(string key, string texpath, Texture2D tex)
+    public void SetStartingHover()
+    public void UploadButtonSelectedDelegate(IUIObject obj)
+    static private bool IsValidSkin(DirectoryInfo di)
+    static public List`1 GetRandoms(int num)
+    static public List`1 GetRecents(int num)
+    static public string GetMicroTipText(string relPath)
+    static public string GetRandomValidSkinPathForModeName(string modeName)
+    static public string GetTipText(string relPath)
+    static public String[] FindSkins(string modName)
+    static public Texture2D GetSkinUITexture(string relPath)
+    static public void InvalideCachedUIObjects()
+    static public void PickValidSkinIfNeeded()
+    static public void PreLoadUITextures()
+    static public void SetSkinPath(string skinPath, bool allowFindSkinsCall)
+
+### ModeSelect   (assembly: Assembly-CSharp)
+  -- fields --
+    private bool confirmAnswerIsOK
+    private bool hasGivenFocustoInitialGamepadHover
+    private bool hasSelectedADesign
+    private bool waitingForConfirm
+    private int biggestRowNum
+    private int colCount
+    private int firstLockedID
+    private int firstRowUnderWorkshopLink
+    private int numTexturesLoadedSoFar
+    private Int32[] countsPerCol
+    private List`1 rowParents
+    private List`1 uigrid
+    private UIGamepadCompass workshopLinkParentCompass
+    public EASING_TYPE firstSlideIn
+    public GameObject confirmDialog
+    public GameObject prefab_ListItem
+    public GameObject prefab_ListItemLocked
+    public GameObject prefab_ListRowHeading
+    public GameObject prefab_ListRowHeadingWithLink
+    public GameObject prefab_ListRowParent
+    public GameObject scrollListRootGO
+    public GameObject workshopItemsParent_ForHidingWorkshop
+    public UIScrollList scrollList
+    static private Dictionary`2 cachedModeMicroTips
+    static private Dictionary`2 cachedModeTips
+    static private Dictionary`2 uiTextures
+    static private Mode[] mods
+    static public bool hasCheckedCommandLine
+    static public bool hasFinishedLoadingAtLeastOnce
+    static public bool shouldAutoAdvanceAfterSelection
+    static public bool unlockAll
+    static public GameObject static_scrollListGO
+    static public Mode selectedModeScript
+    static public string liveCode
+    static public Vector3 listPosition
+  -- methods --
+    private GameObject AddListItem(Mode mod, UIGamepadCompass scrollListCompass, int col, string tooltip, bool uploadable, bool isDeletable, int minRow)
+    private IEnumerator AskDeleteMod(int index)
+    private IEnumerator AskUploadMod(int index)
+    private IEnumerator PopupConfirmDialog(string heading, string okText, string cancelText)
+    private Nullable`1 GetModeByName(string name)
+    private void AddModeToGUI(string name, int col, string tooltip, bool isUnlocked, UIGamepadCompass scrollListCompass, int minRow)
+    private void ConfigureItemCompasses()
+    private void OnDisable()
+    private void OnEnable()
+    private void OnListItemCommentSelected(int index)
+    private void OnListItemDeleteSelected(int index)
+    private void OnListItemUploadSelected(int index)
+    private void OnUnsubscribeUGCComplete(bool isSkin)
+    private void RetargetWorkshopButtonDeletgatesToThisInstance()
+    public IEnumerator Init()
+    public void CommentButtonSelectedDelegate(IUIObject obj)
+    public void DeleteButtonSelectedDelegate(IUIObject obj)
+    public void ItemSelectedDelegate(IUIObject obj)
+    public void OnListItemSelected(int index, GameObject tile)
+    public void OnModalConfirm(bool b)
+    public void SetStartingHover()
+    public void UploadButtonSelectedDelegate(IUIObject obj)
+    static private bool IsValidMod(DirectoryInfo di)
+    static private string GetModFullFilePath(Mode m)
+    static public Mode GetCurrentMode()
+    static public Mode GetRandomMod()
+    static public Mode[] GetModFolders()
+    static public string GetFullModPath(string modName)
+    static public string GetModeMicroTipText(Mode m)
+    static public string GetModeTipText(Mode m)
+    static public string GetModsPath()
+    static public string GetRandomModName()
+    static public string GetSelectedModFullFilePath()
+    static public string ReadModCode()
+    static public Texture2D GetModeTexture2D(Mode m)
+    static public void InvalideCachedUIObjects()
+    static public void PreLoadUITextures()
+    static public void SetModeScript(Mode newMode, bool forceSkinChangeIfNeeded)
+    static public void SetModeScript(string modeRelativePath, bool forceSkinChangeIfNeeded)
+
+### SkinSelectorLoader   (assembly: Assembly-CSharp)
+  -- fields --
+    public bool loadOnStart
+    public RingDesignManager ringDesignManager
+    public Vector3 skinListPosition
+  -- methods --
+    private void Start()
+    public void InitIfNeeded()
+
+### ModeSelectorLoader   (assembly: Assembly-CSharp)
+  -- fields --
+    public bool loadOnStart
+    public ModeSelect modeSelect
+    public Vector3 modeListPosition
+  -- methods --
+    private void Start()
+    public void InitIfNeeded()
+
+### CodeEditor   (assembly: Assembly-CSharp)
+  -- fields --
+    private bool hasRun
+    private bool initialized
+    private DateTime luaWriteTime
+    private float reloadTicker
+    private GUITextCoach skinDevOutputCoach
+    private int maxNumskinConsoleTexts
+    private Queue`1 skinConsoleTexts
+    private string filePath
+    private string liveCode
+    private string luaModError1
+    private string luaSkinError1
+    private string output
+    private string prevLoadedCode
+    private Vector2 scrollPosition
+    public GameObject lobbyWebWindow
+    public GameObject modDevOutputText
+    public GameObject outputMarker
+    public GameObject outputText
+    public GameObject outputTextMod
+    public GameObject skinDevOutputText
+    public LuaController controller
+    public TextAsset luaScript
+    static private string _modPath
+    static private string _skinPath
+    static public bool editorOpen
+    static public bool highwayBuilt
+  -- methods --
+    private void Init()
+    private void OnDisable()
+    private void OnEnable()
+    private void OnLuaModError(string luaModError)
+    private void OnLuaSkinError(string luaSkinError)
+    private void OnLuaSkinPrintText(string txt)
+    private void OnTrackReshapingComplete(Node[] rings)
+    private void PrintSkinOutputTextToConsole(bool showText)
+    private void ReloadCode(string code, string path, bool isFirstRun)
+    private void ShowOutput()
+    private void Start()
+    private void Update()
+    static public string absoluteAssetPath(string path, bool accept_www)
+    static public string CleanupPath_RemoveExtraSlashes(string path)
+    static public string get_assetsPath()
+    static public string get_modPath()
+    static public string get_skinPath()
+    static public void VerifyPathContains(string base_folder, string path)
+
+### UIManager   (assembly: Assembly-CSharp)
+  -- fields --
+    private bool down
+    private bool lmbDownLastFrame
+    private bool m_awake
+    private bool m_started
+    private bool rayActive
+    private bool rayIsNonUIHit
+    private Boolean[] usedNonUIHits
+    private Boolean[] usedPointers
+    private float lastClickTime
+    private float minClickDelay
+    private int curActionID
+    private int inputLockCount
+    private int insert
+    private int lastUpdateFrame
+    private int numActivePointers
+    private int numNonUIHits
+    private int numPointers
+    private int numTouches
+    private int numTouchPointers
+    private Int32[] activePointers
+    private IUIObject focusObj
+    private IUIObject tempObj
+    private KEYBOARD_INFO kbInfo
+    private NonUIHitInfo[] nonUIHits
+    private POINTER_INFO rayPtr
+    private POINTER_INFO tempPtr
+    private POINTER_INFO[,] pointers
+    private PointerInfoDelegate informNonUIHit
+    private PointerInfoDelegate mouseTouchListeners
+    private PointerInfoDelegate rayListeners
+    private PointerPollerDelegate pointerPoller
+    private RAY_ACTIVE_STATE rayState
+    private RaycastHit hit
+    private string controlText
+    private StringBuilder sb
+    private Transform raycastingTransform
+    private Vector3 tempVec
+    public bool blockInput
+    public bool focusWithRay
+    public bool uiAltClick
+    public bool warnOnNonUiHits
+    public Camera rayCamera
+    public EASING_TYPE cancelDragEasing
+    public EZCameraSettings[] uiCameras
+    public float cancelDragDuration
+    public float defaultDragOffset
+    public float dragThreshold
+    public float rayDepth
+    public float rayDragThreshold
+    public LayerMask rayMask
+    public Material defaultFontMaterial
+    public OUTSIDE_VIEWPORT inputOutsideViewport
+    public POINTER_TYPE pointerType
+    public string actionAxis
+    public TextAsset defaultFont
+    static private UIManager s_Instance
+  -- methods --
+    private void AddNonUIHit(int ptrIndex, int camIndex)
+    private void Awake()
+    private void BeginDrag(POINTER_INFO& curPtr)
+    private void CallNonUIHitDelegate()
+    private void DispatchHelper(POINTER_INFO& curPtr, int camIndex)
+    private void DispatchInput()
+    private void DoDragUpdate(POINTER_INFO curPtr)
+    private void LogNonUIObjErr(GameObject obj)
+    private void OnDisable()
+    private void OnEnable()
+    private void OnLevelFinishedLoading(Scene scene, LoadSceneMode mode)
+    private void PollKeyboard()
+    private void PollMouse()
+    private void PollMouse(POINTER_INFO& curPtr)
+    private void PollMouseAndTouchpad()
+    private void PollMouseRay()
+    private void PollRay()
+    private void PollTouchpad()
+    private void PollTouchpadRay()
+    private void ProcessKeyboard()
+    private void SetupPointers()
+    private void Start()
+    public bool DidAnyPointerHitUI()
+    public bool DidPointerHitUI(int id)
+    public bool GetPointer(int pointerID, int camera, POINTER_INFO& ptr)
+    public bool GetPointer(IUIObject obj, POINTER_INFO& ptr)
+    public int get_InsertionPoint()
+    public int get_PointerCount()
+    public IUIObject get_FocusObject()
+    public RAY_ACTIVE_STATE get_RayActive()
+    public void AddCamera(Camera cam, LayerMask mask, float depth, int index)
+    public void AddMouseTouchPtrListener(PointerInfoDelegate del)
+    public void AddNonUIHitDelegate(PointerInfoDelegate del)
+    public void AddRayPtrListener(PointerInfoDelegate del)
+    public void Detarget(int pointerID)
+    public void Detarget(IUIObject obj)
+    public void DetargetAllExcept(int pointerID)
+    public void LockInput()
+    public void OnDestroy()
+    public void RemoveCamera(int index)
+    public void RemoveMouseTouchPtrListener(PointerInfoDelegate del)
+    public void RemoveNonUIHitDelegate(PointerInfoDelegate del)
+    public void RemoveRayPtrListener(PointerInfoDelegate del)
+    public void ReplaceCamera(int index, Camera cam)
+    public void Retarget(IUIObject oldObj, IUIObject newObj)
+    public void set_FocusObject(IUIObject value)
+    public void set_InsertionPoint(int value)
+    public void set_RayActive(RAY_ACTIVE_STATE value)
+    public void SetNonUIHitDelegate(PointerInfoDelegate del)
+    public void UnlockInput()
+    public void Update()
+    static private int FindInsertionPoint(string before, string after)
+    static public bool Exists()
+    static public UIManager get_instance()
+
