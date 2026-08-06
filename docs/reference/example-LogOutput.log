@@ -1,0 +1,32 @@
+[Message:   BepInEx] BepInEx 5.4.23.5 - Audiosurf2 (3/5/2022 10:37:28 PM)
+[Info   :   BepInEx] Running under Unity v2017.4.40.7214086
+[Info   :   BepInEx] CLR runtime version: 2.0.50727.1433
+[Info   :   BepInEx] Supports SRE: True
+[Info   :   BepInEx] System platform: Bits64, Windows
+[Message:   BepInEx] Preloader started
+[Info   :   BepInEx] Loaded 1 patcher method from [BepInEx.Preloader 5.4.23.5]
+[Info   :   BepInEx] 1 patcher plugin loaded
+[Info   :   BepInEx] Patching [UnityEngine.CoreModule] with [BepInEx.Chainloader]
+[Message:   BepInEx] Preloader finished
+[Warning:  HarmonyX] AccessTools.Property: Could not find property for type UnityEngine.Application and name isBatchMode
+[Message:   BepInEx] Chainloader ready
+[Message:   BepInEx] Chainloader started
+[Info   :   BepInEx] 3 plugins to load
+[Info   :   BepInEx] Loading [Audiosurf 2 Mod API 0.1.0]
+[Info   :Audiosurf 2 Mod API] Mod API ready. Game root: C:\Program Files (x86)\Steam\steamapps\common\Audiosurf 2
+[Info   :   BepInEx] Loading [Audiosurf 2 Mod Settings 1.0.0]
+[Info   :Audiosurf 2 Mod Settings] Loaded settings for 1 skin(s)/mode(s) from C:\Program Files (x86)\Steam\steamapps\common\Audiosurf 2\ModSettings\settings.json.
+[Info   :Audiosurf 2 Mod Settings] Ready.
+[Info   :   BepInEx] Loading [AS2 Probe 0.1.0]
+[Info   : AS2 Probe] AS2.Probe loaded. BepInEx is running under the community patch's doorstop.
+[Info   : AS2 Probe] Member dump written to C:\Program Files (x86)\Steam\steamapps\common\Audiosurf 2\AS2ModLoader\probe-dump.txt
+[Info   : AS2 Probe] Patched Lua NewLua(string name) -- waiting for a song to start.
+[Message:   BepInEx] Chainloader startup complete
+[Info   :   Console] [HTTP Listener] Starting NamedPipe class
+[Info   :Audiosurf 2 Mod Settings] Showing settings for 'skins/rainbowdrive' (7 setting(s)).
+[Info   :Audiosurf 2 Mod Settings] Saved C:\Program Files (x86)\Steam\steamapps\common\Audiosurf 2\ModSettings\settings.json.
+[Info   :Audiosurf 2 Mod Settings] Showing settings for 'skins/Rainbowdrive' (7 setting(s)).
+[Info   :Audiosurf 2 Mod Settings] Injected Setting() into the skin state for 'skins/Rainbowdrive' (7 setting(s)).
+[Info   : AS2 Probe] HARMONY HIT: LuaSandbox.NewLua(kind="Skin")
+[Info   :Audiosurf 2 Mod Settings] Injected Setting() into the mode state for 'mods/mono' (no schema).
+[Info   : AS2 Probe] HARMONY HIT: LuaSandbox.NewLua(kind="Mod")
