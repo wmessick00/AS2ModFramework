@@ -105,6 +105,19 @@ the single factory every Lua state in the game comes from, so it replaces both o
 `LuaSkinFunctionsRegistered` / `LuaModFunctionsRegistered` messages *and* the reflection into the
 private `LuaMods.lua` field that reading the mode state used to require.
 
+It also comes with an obligation, which the one-liner above hides. **Skin and mode scripts are Steam
+Workshop downloads — a player subscribes, and someone else's Lua runs.** The game knows this and
+sandboxes every state it creates: `NewLua` nils out `io`, `package`, `require`, `os.execute`,
+`os.remove`, and both `luanet` and `load_assembly` (LuaInterface's bridge to the CLR), then narrows
+reachable types to a whitelist of about forty. Because this event is a postfix, the state you get
+has already been through all of that.
+
+`RegisterFunction` does not consult that whitelist. Anything you register is reachable by every
+Workshop skin the player has ever subscribed to, so register nothing with file, network, process or
+reflection reach, and treat every argument as hostile — it comes from Lua, and the signature
+guarantees you nothing about it. See
+[docs/game-internals.md](docs/game-internals.md#the-state-is-sandboxed-and-what-you-register-is-not).
+
 Also available:
 
 | API | For |
@@ -116,6 +129,28 @@ Also available:
 | `AS2Paths` | Where to keep content data, as opposed to BepInEx plugin config |
 
 [docs/game-internals.md](docs/game-internals.md) documents the hookable surface these are built on.
+
+## What this framework does not touch
+
+Two questions get asked about any Audiosurf 2 mod loader, and both have concrete answers rather than
+assurances.
+
+**It cannot change what the game does.** Every Harmony patch here is a *postfix*, applied through a
+single helper that passes `null` for the prefix. There are no prefixes, so no game method can be
+skipped or short-circuited; no transpilers, so no method body is rewritten; and no patch writes back
+to `__result`. The framework observes and re-broadcasts, and that is all it is structurally capable
+of. Four types are patched — `RingDesignManager`, `ModeSelect`, `Settings` and `LuaSandbox` — and
+each patch is listed in [`src/AS2.ModApi/Patches.cs`](src/AS2.ModApi/Patches.cs).
+
+**There is no scoring surface.** Nothing here references `ScoreManager`, `Leaderboard`,
+`LiveScoreboard`, Steam, or achievements, and no event exposes them. Note this is a statement about
+*this framework*, not about what modes may do: the game gives Lua `SetLocalScore` / `SetGlobalScore`
+and has a `ScoreManager.modInChargeOfScoring` flag, because custom modes doing their own scoring is
+a designed feature. The framework simply adds nothing to it.
+
+The corresponding promise to the community patch is in the install section above: on the launch
+option install this modifies **no game file at all**, and `winhttp.dll` is never touched by any
+install. Uninstalling is deleting two folders.
 
 ## How it works
 

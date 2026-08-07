@@ -78,3 +78,20 @@ that throws must never take the game down with it.
   load-bearing and the comment says what breaks without it.
 - `net35` only. No `string.IsNullOrWhiteSpace`, no `Task`, no `ValueTuple`, no string interpolation
   habits that assume newer BCL. `Str.IsBlank` exists for the first one.
+
+## Two invariants worth not breaking by accident
+
+Both are claims the README makes to users, so changing either is a decision, not a refactor.
+
+1. **Postfixes only.** Every patch goes through `Patches.Patch`, which passes `null` for the prefix.
+   No prefixes, no transpilers, no writing back to `__result`. That is what makes "this framework
+   cannot change what the game does" a structural fact rather than a promise, and it is the honest
+   answer to "does this let people cheat". Adding a prefix costs that answer.
+2. **The Lua sandbox is the game's, and `LuaStateCreated` must stay downstream of it.** `NewLua`
+   sandboxes the state before returning; patching it as a postfix is what hands subscribers a
+   sandboxed interpreter. Skins and modes are Workshop downloads and are not trusted. See
+   [docs/game-internals.md](docs/game-internals.md#the-state-is-sandboxed-and-what-you-register-is-not).
+
+Anything turning a caller-supplied name into a path goes through `PathGuard.IsPlainFileName` or
+`TargetResolver.FolderForKey`. Keys are built from Workshop folder names; they are not trusted input
+just because the game handed them over.

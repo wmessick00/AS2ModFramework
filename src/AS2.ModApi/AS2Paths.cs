@@ -42,10 +42,22 @@ namespace AS2.ModApi
         /// <summary>
         /// A file in the shared data folder. Name it after the mod, not after the data
         /// ("skin-settings.json", not "settings.json"), because the folder is shared.
+        ///
+        /// The name must be a plain file name. Throwing on anything else is deliberate: the
+        /// tempting way to name a per-skin file is after its storage key, and a key is built from
+        /// a Steam Workshop folder name its author chose. Path.Combine would return a rooted name
+        /// whole and drop the data folder entirely, so this is checked here rather than trusted --
+        /// see <see cref="PathGuard"/>. Key data by putting the key *inside* one file, not by
+        /// spelling it into the file's name.
         /// </summary>
         public static string DataFile(string fileName)
         {
             if (Str.IsBlank(fileName)) throw new ArgumentException("A data file needs a name.", "fileName");
+
+            if (!PathGuard.IsPlainFileName(fileName))
+                throw new ArgumentException(
+                    "A data file needs a plain file name, not a path: '" + fileName + "'.", "fileName");
+
             return Path.Combine(DataDir, fileName);
         }
 

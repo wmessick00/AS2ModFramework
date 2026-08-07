@@ -106,6 +106,11 @@ namespace AS2.ModApi
         /// inside the install, so anything that climbs is either the game behaving in a way we have
         /// never seen or somebody feeding the API a path it should not follow. Every caller already
         /// treats null as "no target".
+        ///
+        /// An absolute path is rejected for the same reason. <see cref="FolderForKey"/> would catch
+        /// one on the way back in, but this is the method documented as producing a key, and a key
+        /// does not stay here: it is handed to mods, written into their saved JSON, and combined
+        /// with paths by code this API never sees. The two guards are deliberately symmetric.
         /// </summary>
         public static string Normalize(string relativePath)
         {
@@ -119,6 +124,18 @@ namespace AS2.ModApi
                 ModApiPlugin.Log.LogWarning("Refusing the relative path '" + relativePath + "': a key cannot contain '.' or '..' segments.");
                 return null;
             }
+
+            // A drive or stream qualifier ("C:/Windows", "skins/foo:bar") means this is not a
+            // location inside the install. Path.IsPathRooted would answer the first case, but it
+            // throws on invalid path characters and these strings arrive from the game and from
+            // third-party mods; ':' is not legal inside a Windows path segment anyway, so testing
+            // for it directly is both safer to call and stricter than the question asked.
+            if (s.IndexOf(':') >= 0)
+            {
+                ModApiPlugin.Log.LogWarning("Refusing the relative path '" + relativePath + "': a key names a folder inside the game, so it cannot be absolute.");
+                return null;
+            }
+
             return Canonicalize(s);
         }
 
@@ -134,12 +151,29 @@ namespace AS2.ModApi
             new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
         /// <summary>
+        /// A backstop rather than the real bound. Only keys that resolved to a folder on disk are
+        /// cached, so the dictionary is already limited by what the install contains; this caps it
+        /// anyway rather than trusting that reasoning to survive a future edit. Clearing wholesale
+        /// rather than evicting is enough -- a miss costs one directory listing.
+        /// </summary>
+        private const int MaxCachedKeys = 4096;
+
+        /// <summary>
         /// Rewrites each segment of a key to the casing the folder actually has on disk. A key that
         /// does not correspond to a real folder is returned unchanged, so this can never turn a
         /// usable key into null.
         ///
-        /// Cached: the filesystem walk happens once per distinct key, and these are only built when
-        /// the selection changes or a Lua state is created.
+        /// **Only successful resolutions are cached.** A key that did not resolve is walked again
+        /// next time, which costs one directory listing and buys the case that actually happens: a
+        /// Steam Workshop item still downloading when something first asks about it. Caching that
+        /// failure would pin the caller's own spelling for the rest of the process -- exactly the
+        /// fork in a mod's saved JSON this method exists to prevent, and it would defeat it in the
+        /// one session where the folder appeared late.
+        ///
+        /// Successes need no equivalent treatment. A folder already on disk does not change how it
+        /// spells itself mid-session, and a rename produces a different key, which is a different
+        /// cache entry and so a fresh walk. A case-only rename is the sole stale case left, and on
+        /// Windows both spellings name the same folder, so it costs nothing but the spelling.
         /// </summary>
         private static string Canonicalize(string key)
         {
@@ -149,7 +183,24 @@ namespace AS2.ModApi
                 if (CanonicalCache.TryGetValue(key, out hit)) return hit;
             }
 
-            string result = key;
+            string resolved = ResolveCasing(key);
+            if (resolved == null) return key;
+
+            lock (CanonicalCache)
+            {
+                if (CanonicalCache.Count >= MaxCachedKeys) CanonicalCache.Clear();
+                CanonicalCache[key] = resolved;
+            }
+            return resolved;
+        }
+
+        /// <summary>
+        /// The key with every segment respelled the way the folder on disk spells it, or null if
+        /// the walk did not find a real folder for each one. Null is "ask me again later", which is
+        /// what keeps a folder that appears mid-session from being missed for the whole session.
+        /// </summary>
+        private static string ResolveCasing(string key)
+        {
             try
             {
                 string current = GameRoot;
@@ -165,21 +216,20 @@ namespace AS2.ModApi
                         if (string.Equals(name, parts[i], StringComparison.OrdinalIgnoreCase)) { match = name; break; }
                     }
 
-                    if (match == null) { rebuilt = null; break; }
+                    if (match == null) return null;
 
                     rebuilt[i] = match;
                     current = Path.Combine(current, match);
                 }
 
-                if (rebuilt != null) result = string.Join("/", rebuilt);
+                return string.Join("/", rebuilt);
             }
             catch
             {
-                // An unreadable directory just means we keep the key as the game spelled it.
+                // An unreadable directory just means we keep the key as the game spelled it -- and
+                // that we do not remember having failed, since the next call may well succeed.
+                return null;
             }
-
-            lock (CanonicalCache) CanonicalCache[key] = result;
-            return result;
         }
 
         /// <summary>
@@ -211,9 +261,18 @@ namespace AS2.ModApi
             }
         }
 
-        /// <summary>Whether the folder behind a key ships the given file (e.g. a settings schema).</summary>
+        /// <summary>
+        /// Whether the folder behind a key ships the given file (e.g. a settings schema).
+        /// <paramref name="fileName"/> must be a plain file name; see <see cref="PathGuard"/>.
+        /// </summary>
         public static bool HasFile(string key, string fileName)
         {
+            if (!PathGuard.IsPlainFileName(fileName))
+            {
+                ModApiPlugin.Log.LogWarning("Refusing the file name '" + fileName + "': it must be a plain file name, not a path.");
+                return false;
+            }
+
             string folder = FolderForKey(key);
             if (folder == null) return false;
             try { return File.Exists(Path.Combine(folder, fileName)); }
@@ -223,10 +282,21 @@ namespace AS2.ModApi
         /// <summary>
         /// Every skin and mode folder that ships <paramref name="fileName"/>, skins first, each
         /// group sorted by name.
+        ///
+        /// <paramref name="fileName"/> must be a plain file name. An absolute one would make the
+        /// existence test below true for every folder inspected, so this would answer "all of
+        /// them" -- a wrong answer that looks exactly like a working one.
         /// </summary>
         public static List<Target> Enumerate(string fileName)
         {
             var found = new List<Target>();
+
+            if (!PathGuard.IsPlainFileName(fileName))
+            {
+                ModApiPlugin.Log.LogWarning("Refusing to enumerate targets for '" + fileName + "': it must be a plain file name, not a path.");
+                return found;
+            }
+
             var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
             CollectFrom(SkinsDir, SelectorKind.Skin, fileName, found, seen);

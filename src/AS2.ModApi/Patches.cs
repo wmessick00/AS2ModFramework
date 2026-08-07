@@ -71,6 +71,11 @@ namespace AS2.ModApi
         /// from; a runtime probe confirmed it is called with exactly "Skin" and "Mod". Patching it
         /// is what lets AS2Events.LuaStateCreated replace both of the game's Messenger broadcasts
         /// and the reflection into LuaMods' private 'lua' field.
+        ///
+        /// This being a *postfix* is load-bearing beyond needing __result. NewLua sandboxes the
+        /// state before returning it (SecureLuaFunctions, Sandboxify, LoadSafeTypes), so running
+        /// after it is what makes LuaStateCreated hand subscribers a sandboxed state rather than a
+        /// raw interpreter. Do not move this earlier in the call, and do not patch Sandboxify.
         /// </summary>
         private static void WireLuaFactory(Harmony harmony)
         {

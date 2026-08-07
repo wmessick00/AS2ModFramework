@@ -10,25 +10,32 @@ namespace AS2.ModApi
     /// Loads the shared API and applies its patches. Mods depend on this with
     /// [BepInDependency(ModApiPlugin.Id)] and then talk only to <see cref="AS2Events"/>.
     /// </summary>
-    [BepInPlugin(Id, "Audiosurf 2 Mod API", Version)]
+    [BepInPlugin(Id, Name, Version)]
     public sealed class ModApiPlugin : BaseUnityPlugin
     {
         public const string Id = "as2.modapi";
+        public const string Name = "Audiosurf 2 Mod API";
         public const string Version = "0.1.0";
 
         /// <summary>
         /// Exposed statically so the rest of the assembly can log without threading a reference
         /// through every call. BepInEx gives each plugin its own tagged source, so these lines are
         /// attributed to the API rather than to whichever mod happened to trigger them.
+        ///
+        /// Built here rather than assigned from Logger in Awake, because every public type in this
+        /// assembly logs through it and they are all reachable before Awake runs. A plugin that
+        /// calls AS2ModMenu.Register or AS2Paths.DataFile without declaring
+        /// [BepInDependency(ModApiPlugin.Id)] loads in whatever order the chainloader picked, and
+        /// the dependency attribute is a convention this API cannot enforce. A null here would
+        /// answer that mistake with a NullReferenceException thrown from inside the framework,
+        /// which is a bad way to learn about a missing attribute.
         /// </summary>
-        internal static ManualLogSource Log;
+        internal static readonly ManualLogSource Log = BepInEx.Logging.Logger.CreateLogSource(Name);
 
         private Harmony _harmony;
 
         private void Awake()
         {
-            Log = Logger;
-
             try
             {
                 _harmony = new Harmony(Id);
@@ -61,6 +68,11 @@ namespace AS2.ModApi
             }
         }
 
+        /// <summary>
+        /// UnpatchSelf removes only the patches made under this Harmony id, despite the name
+        /// reading like it might do more. That matters here: the community patch and other mods
+        /// have their own patches on the same methods, and this must never strip them.
+        /// </summary>
         private void OnDestroy()
         {
             try { if (_harmony != null) _harmony.UnpatchSelf(); }
