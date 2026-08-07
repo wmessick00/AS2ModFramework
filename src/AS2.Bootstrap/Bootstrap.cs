@@ -54,8 +54,19 @@ namespace AS2.Bootstrap
 
             string root = GameRoot();
 
-            try { BootLog.Init(Path.Combine(root, "AS2ModLoader")); }
+            // Logging is initialised before the root is checked, and is the one thing allowed to
+            // fall back to the working directory: writing a log file there is harmless, and
+            // without it a failure to locate the game would have nowhere to report itself.
+            try { BootLog.Init(Path.Combine(root ?? Directory.GetCurrentDirectory(), "AS2ModLoader")); }
             catch { /* logging is best-effort */ }
+
+            if (root == null)
+            {
+                BootLog.Error("Could not determine the game folder: neither DOORSTOP_PROCESS_PATH nor this "
+                            + "assembly's own location resolved. Refusing to load code relative to the working "
+                            + "directory; no plugins will load this run.", null);
+                return;
+            }
 
             BootLog.Info("AS2.Bootstrap starting. Game root: " + root);
 
@@ -144,13 +155,31 @@ namespace AS2.Bootstrap
             }
 
             Assembly asm = Assembly.LoadFrom(path);
+
+            // The shipped PatchUpdaterPreloader.dll is built as a class library, so EntryPoint is
+            // null and the search below is the live path on every launch, not a fallback. Its one
+            // static Main is PatchUpdaterPreloader.Program.Main(string[]).
+            //
+            // That named type is therefore tried first, and only then does this fall back to
+            // scanning. The scan is kept because the alternative is worse: the community patch
+            // renaming a class it owns should not silently cost the player their auto-updater. But
+            // it now logs which type it chose, so "we invoked something unexpected in the patch's
+            // assembly" is a line in bootstrap.log rather than a thing nobody can see.
             MethodInfo entry = asm.EntryPoint;
+            if (entry == null) entry = FindMain(asm.GetType("PatchUpdaterPreloader.Program", false));
+
             if (entry == null)
             {
                 foreach (Type t in asm.GetTypes())
                 {
-                    entry = t.GetMethod("Main", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
-                    if (entry != null) break;
+                    entry = FindMain(t);
+                    if (entry != null)
+                    {
+                        BootLog.Warn("Patch preloader has no PatchUpdaterPreloader.Program.Main; using "
+                                   + t.FullName + ".Main instead. The community patch has probably been "
+                                   + "restructured -- worth checking that auto-update still works.");
+                        break;
+                    }
                 }
             }
 
@@ -164,6 +193,13 @@ namespace AS2.Bootstrap
             object[] args = entry.GetParameters().Length == 0 ? null : new object[] { new string[0] };
             entry.Invoke(null, args);
             BootLog.Info("Chained into the community patch preloader.");
+        }
+
+        /// <summary>A type's static Main, public or not, or null -- including when the type is null.</summary>
+        private static MethodInfo FindMain(Type t)
+        {
+            if (t == null) return null;
+            return t.GetMethod("Main", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
         }
 
         // ---- Doorstop config ------------------------------------------------------------------
@@ -270,6 +306,14 @@ namespace AS2.Bootstrap
         /// <summary>
         /// Doorstop hands us the full path to Audiosurf2.exe. Falling back to this assembly's own
         /// location covers being invoked some other way; AS2ModLoader\ sits directly in the root.
+        ///
+        /// Returns null rather than the working directory when neither resolves. Everything the
+        /// caller does with this value loads or rewrites code -- Assembly.LoadFrom on two
+        /// preloaders, and the doorstop target ini -- and a working directory is not ours to
+        /// assume: it is whatever the process was started from, which a shortcut or a launcher
+        /// chooses. Both branches above succeed in every real launch, so this costs nothing;
+        /// it exists so that "we do not know where the game is" cannot quietly become
+        /// "load BepInEx\core\BepInEx.Preloader.dll from wherever we happen to be standing".
         /// </summary>
         private static string GameRoot()
         {
@@ -295,7 +339,7 @@ namespace AS2.Bootstrap
             }
             catch { }
 
-            return Directory.GetCurrentDirectory();
+            return null;
         }
 
         /// <summary>.NET 3.5 has no string.IsNullOrWhiteSpace.</summary>

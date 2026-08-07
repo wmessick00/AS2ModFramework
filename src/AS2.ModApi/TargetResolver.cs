@@ -106,6 +106,11 @@ namespace AS2.ModApi
         /// inside the install, so anything that climbs is either the game behaving in a way we have
         /// never seen or somebody feeding the API a path it should not follow. Every caller already
         /// treats null as "no target".
+        ///
+        /// An absolute path is rejected for the same reason. <see cref="FolderForKey"/> would catch
+        /// one on the way back in, but this is the method documented as producing a key, and a key
+        /// does not stay here: it is handed to mods, written into their saved JSON, and combined
+        /// with paths by code this API never sees. The two guards are deliberately symmetric.
         /// </summary>
         public static string Normalize(string relativePath)
         {
@@ -119,6 +124,18 @@ namespace AS2.ModApi
                 ModApiPlugin.Log.LogWarning("Refusing the relative path '" + relativePath + "': a key cannot contain '.' or '..' segments.");
                 return null;
             }
+
+            // A drive or stream qualifier ("C:/Windows", "skins/foo:bar") means this is not a
+            // location inside the install. Path.IsPathRooted would answer the first case, but it
+            // throws on invalid path characters and these strings arrive from the game and from
+            // third-party mods; ':' is not legal inside a Windows path segment anyway, so testing
+            // for it directly is both safer to call and stricter than the question asked.
+            if (s.IndexOf(':') >= 0)
+            {
+                ModApiPlugin.Log.LogWarning("Refusing the relative path '" + relativePath + "': a key names a folder inside the game, so it cannot be absolute.");
+                return null;
+            }
+
             return Canonicalize(s);
         }
 
@@ -132,6 +149,15 @@ namespace AS2.ModApi
 
         private static readonly Dictionary<string, string> CanonicalCache =
             new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>
+        /// Well above the number of skins and modes any install has, so the cache never clears in
+        /// normal use. It exists because the keys come from mods rather than only from the game: a
+        /// plugin normalising strings in a loop would otherwise grow this dictionary for the life
+        /// of the process. Clearing wholesale rather than evicting is enough -- a miss costs one
+        /// directory listing, and reaching this at all means the cache was not working anyway.
+        /// </summary>
+        private const int MaxCachedKeys = 4096;
 
         /// <summary>
         /// Rewrites each segment of a key to the casing the folder actually has on disk. A key that
@@ -178,7 +204,11 @@ namespace AS2.ModApi
                 // An unreadable directory just means we keep the key as the game spelled it.
             }
 
-            lock (CanonicalCache) CanonicalCache[key] = result;
+            lock (CanonicalCache)
+            {
+                if (CanonicalCache.Count >= MaxCachedKeys) CanonicalCache.Clear();
+                CanonicalCache[key] = result;
+            }
             return result;
         }
 
@@ -211,9 +241,18 @@ namespace AS2.ModApi
             }
         }
 
-        /// <summary>Whether the folder behind a key ships the given file (e.g. a settings schema).</summary>
+        /// <summary>
+        /// Whether the folder behind a key ships the given file (e.g. a settings schema).
+        /// <paramref name="fileName"/> must be a plain file name; see <see cref="PathGuard"/>.
+        /// </summary>
         public static bool HasFile(string key, string fileName)
         {
+            if (!PathGuard.IsPlainFileName(fileName))
+            {
+                ModApiPlugin.Log.LogWarning("Refusing the file name '" + fileName + "': it must be a plain file name, not a path.");
+                return false;
+            }
+
             string folder = FolderForKey(key);
             if (folder == null) return false;
             try { return File.Exists(Path.Combine(folder, fileName)); }
@@ -223,10 +262,21 @@ namespace AS2.ModApi
         /// <summary>
         /// Every skin and mode folder that ships <paramref name="fileName"/>, skins first, each
         /// group sorted by name.
+        ///
+        /// <paramref name="fileName"/> must be a plain file name. An absolute one would make the
+        /// existence test below true for every folder inspected, so this would answer "all of
+        /// them" -- a wrong answer that looks exactly like a working one.
         /// </summary>
         public static List<Target> Enumerate(string fileName)
         {
             var found = new List<Target>();
+
+            if (!PathGuard.IsPlainFileName(fileName))
+            {
+                ModApiPlugin.Log.LogWarning("Refusing to enumerate targets for '" + fileName + "': it must be a plain file name, not a path.");
+                return found;
+            }
+
             var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
             CollectFrom(SkinsDir, SelectorKind.Skin, fileName, found, seen);
