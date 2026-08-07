@@ -66,9 +66,7 @@ namespace AS2.ModApi
             try
             {
                 string full = Path.GetFullPath(absoluteFolder);
-                string root = Path.GetFullPath(GameRoot);
-                if (!root.EndsWith(Path.DirectorySeparatorChar.ToString(), StringComparison.Ordinal))
-                    root += Path.DirectorySeparatorChar;
+                string root = RootPrefix();
                 if (!full.StartsWith(root, StringComparison.OrdinalIgnoreCase)) return null;
                 return Normalize(full.Substring(root.Length));
             }
@@ -77,6 +75,19 @@ namespace AS2.ModApi
                 ModApiPlugin.Log.LogWarning("Could not build a key for '" + absoluteFolder + "': " + e.Message);
                 return null;
             }
+        }
+
+        /// <summary>
+        /// The game root with a trailing separator, which is what a containment test has to compare
+        /// against: without it a sibling install like "...\Audiosurf 2 Backup" starts with the root
+        /// as a plain string and would pass.
+        /// </summary>
+        private static string RootPrefix()
+        {
+            string root = Path.GetFullPath(GameRoot);
+            if (!root.EndsWith(Path.DirectorySeparatorChar.ToString(), StringComparison.Ordinal))
+                root += Path.DirectorySeparatorChar;
+            return root;
         }
 
         /// <summary>
@@ -90,6 +101,11 @@ namespace AS2.ModApi
         /// this API -- they end up as keys in mods' saved JSON -- so two spellings of one skin is a
         /// bug waiting to strand somebody's settings. It survives today only because Windows paths
         /// and the one dictionary that matters are both case-insensitive.
+        ///
+        /// A path with "." or ".." segments is rejected rather than collapsed: a key names a folder
+        /// inside the install, so anything that climbs is either the game behaving in a way we have
+        /// never seen or somebody feeding the API a path it should not follow. Every caller already
+        /// treats null as "no target".
         /// </summary>
         public static string Normalize(string relativePath)
         {
@@ -97,7 +113,21 @@ namespace AS2.ModApi
             string s = relativePath.Replace('\\', '/');
             while (s.Contains("//")) s = s.Replace("//", "/");
             s = s.Trim('/');
-            return s.Length == 0 ? null : Canonicalize(s);
+            if (s.Length == 0) return null;
+            if (HasDotSegment(s))
+            {
+                ModApiPlugin.Log.LogWarning("Refusing the relative path '" + relativePath + "': a key cannot contain '.' or '..' segments.");
+                return null;
+            }
+            return Canonicalize(s);
+        }
+
+        /// <summary>Whether any segment of a forward-slashed key is "." or "..".</summary>
+        private static bool HasDotSegment(string key)
+        {
+            foreach (string part in key.Split('/'))
+                if (part == "." || part == "..") return true;
+            return false;
         }
 
         private static readonly Dictionary<string, string> CanonicalCache =
@@ -152,10 +182,33 @@ namespace AS2.ModApi
             return result;
         }
 
+        /// <summary>
+        /// The absolute folder a key names, or null if the key does not land inside the game root.
+        ///
+        /// Keys are untrusted input on the way back in: they come out of mods' saved JSON and are
+        /// built by third-party plugins from whatever a skin or a player handed them.
+        /// <see cref="KeyForFolder"/> only ever emits contained keys, so this is that same check in
+        /// the other direction -- without it a ".." key, or a rooted one like "C:/Windows" that
+        /// Path.Combine returns whole and throws the game root away, resolves outside the install.
+        /// </summary>
         public static string FolderForKey(string key)
         {
             if (Str.IsBlank(key)) return null;
-            return Path.Combine(GameRoot, key.Replace('/', Path.DirectorySeparatorChar));
+            try
+            {
+                string full = Path.GetFullPath(Path.Combine(GameRoot, key.Replace('/', Path.DirectorySeparatorChar)));
+                if (!full.StartsWith(RootPrefix(), StringComparison.OrdinalIgnoreCase))
+                {
+                    ModApiPlugin.Log.LogWarning("Refusing the key '" + key + "': it resolves outside the game root.");
+                    return null;
+                }
+                return full;
+            }
+            catch (Exception e)
+            {
+                ModApiPlugin.Log.LogWarning("Could not resolve the folder for key '" + key + "': " + e.Message);
+                return null;
+            }
         }
 
         /// <summary>Whether the folder behind a key ships the given file (e.g. a settings schema).</summary>
