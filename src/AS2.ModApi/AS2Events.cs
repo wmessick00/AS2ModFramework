@@ -43,6 +43,40 @@ namespace AS2.ModApi
         /// state in the game comes through here, which is why this single event replaces both of
         /// the game's LuaSkinFunctionsRegistered / LuaModFunctionsRegistered messages and the
         /// reflection into the private LuaMods.lua field that reading the mode state used to need.
+        ///
+        /// <para>
+        /// <b>The code that will run in this state is not yours and is not trusted.</b> Skins and
+        /// modes are Steam Workshop downloads: a player subscribes, and someone else's Lua runs.
+        /// The game treats them accordingly, and the state handed to you here has already been
+        /// sandboxed -- LuaSandbox.NewLua calls SecureLuaFunctions, Sandboxify and LoadSafeTypes
+        /// before returning. Between them those nil out `package`, `io`, `require`, `module`,
+        /// `os.execute`, `os.exit`, `os.getenv`, `os.remove`, `os.rename`, and -- the two that
+        /// matter most -- `luanet` and `load_assembly`, which are LuaInterface's bridge to the
+        /// CLR. Reachable types are then narrowed to a whitelist of about forty.
+        /// </para>
+        ///
+        /// <para>
+        /// Every function you register lands on the far side of that whitelist. `RegisterFunction`
+        /// does not consult it, so a helper added here is a hole punched straight through the
+        /// sandbox, callable by any skin the player has ever subscribed to. So:
+        /// </para>
+        ///
+        /// <list type="bullet">
+        /// <item>Register nothing with file, network, process or reflection reach. A convenience
+        /// wrapper over File.ReadAllText hands arbitrary file reads to untrusted content.</item>
+        /// <item>Treat every argument as hostile -- wrong type, null, absurd length, a path that
+        /// climbs. It is Lua: the signature guarantees you nothing.</item>
+        /// <item>Keep what you expose to data your own mod owns, and keep it read-mostly.</item>
+        /// </list>
+        ///
+        /// <para>
+        /// The `Lua` handed to you belongs to the game and is disposed on
+        /// LuaController.OnDisable; expect several states per song and make injection idempotent
+        /// and cheap. Retaining the reference past this event means holding a live interpreter --
+        /// including, on a "Mod" state, the scoring functions the game registers into it moments
+        /// later. That is not a capability this API grants you (a BepInEx plugin has the whole
+        /// process either way) but it is the shortest path to it, so reach for it deliberately.
+        /// </para>
         /// </summary>
         public static event Action<Lua, string> LuaStateCreated;
 
