@@ -1,9 +1,12 @@
 # Verifying a change
 
-There are no unit tests. The game is the test harness, and a human drives it — prefer to have someone
-start the game through Steam rather than launching the executable from a tool, which can trigger a
-license popup. So each verification round costs one manual launch: batch everything you want to learn
-into a single run.
+For anything that binds to Unity or BepInEx, the game is the test harness and a human drives it —
+prefer to have someone start the game through Steam rather than launching the executable from a tool,
+which can trigger a license popup. So each verification round costs one manual launch: batch
+everything you want to learn into a single run.
+
+The exception is the path and key logic, which needs none of that and has
+[committed tests](#cold-checks-that-need-no-launch). Run those first; they are free.
 
 ## The loop
 
@@ -112,9 +115,32 @@ Lua Skin:[ USER SETTINGS:  Palette = 0, SkyBox = 2, Ship = 1, ... ]
 Cross-check `SkyBox = 2` against `<game>\BepInEx\data\skin-settings.json`. If they disagree, the injection
 ran but read the wrong key — suspect key resolution, not the Lua side.
 
-## Verifying without a launch
+## Cold checks that need no launch
 
 Some things can be checked cold; prefer this when you can, to save a launch.
+
+**The path and key logic has real tests.** `TargetResolver` and `PathGuard` are what turn the game's
+relative paths into storage keys and, just as importantly, what refuse a key that would resolve
+outside the install. None of that needs Unity, BepInEx or the game:
+
+```bash
+dotnet run --project tests/AS2.ModApi.Tests
+```
+
+Exit code 0 means every check passed; failures are listed and the exit code is 1. It needs no game
+installed, which makes it the only thing here that runs on a machine without Audiosurf 2.
+
+The project compiles the **real source files** rather than referencing the built DLL, so the tests
+cannot drift from what ships — see the comment in
+[`tests/AS2.ModApi.Tests/AS2.ModApi.Tests.csproj`](../tests/AS2.ModApi.Tests/AS2.ModApi.Tests.csproj)
+for why, and `Shims.cs` for the two external statics it fakes. Adding a `using BepInEx` or
+`UnityEngine` to a file on that project's `Compile` list will break the test build; that is the
+constraint working, not a problem to route around.
+
+Run it after touching anything in `TargetResolver`, `PathGuard`, `Normalize` or `FolderForKey`. The
+traversal and rooted-path rejections in particular are the sort of guard a refactor deletes without
+meaning to, and before these tests existed nothing would have caught that short of a manual launch
+and a careful read of the log.
 
 **Assembly shape** (entry points, references, CLR version) via reflection-only load:
 
@@ -128,8 +154,10 @@ $a.GetTypes() | ForEach-Object { $_.FullName }
 This is how `Bootstrap.Main()` was confirmed to be a parameterless static that Doorstop's `*:Main`
 descriptor will actually resolve — a mistake that would otherwise fail silently at launch.
 
-**Pure filesystem or string logic** can be prototyped against the real game folder in Python before
-committing to a launch; the key-canonicalisation algorithm was validated that way.
+**Other pure filesystem or string logic** can be prototyped against the real game folder before
+committing to a launch. If the thing you are prototyping lives in `AS2.ModApi` and does not touch
+Unity or BepInEx, prefer adding a case to the test project over a throwaway script — that is exactly
+how the key-canonicalisation algorithm ended up validated once, ad hoc, and then unprotected.
 
 ## Diagnosing a mod that will not load
 

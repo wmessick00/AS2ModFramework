@@ -1,0 +1,46 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Cold checks for the path and key logic in AS2.ModApi, per the policy in AGENTS.md: anything that
+    does not truly need the game running should not need a launch to verify.
+
+    Three things about the shape of this project are deliberate.
+
+    It compiles the real source files rather than referencing the built DLL. AS2.ModApi is net35 and
+    binds to BepInEx, Unity and LuaInterface, none of which load outside the game; reflecting over
+    the shipped assembly was tried and dies resolving MonoMod and UnityEngine. Linking the sources
+    means these tests exercise the same text that ships, so they cannot drift from it the way a
+    reimplementation in a script would.
+
+    It has no NuGet dependency, matching the rest of the repo. That includes the test framework:
+    this is a console app that returns a non-zero exit code on failure, which `dotnet run` reports
+    and any CI understands. A test runner would be nicer and is not worth an offline-build exception.
+
+    It needs no game installed. Only the two genuinely external statics are faked (see Shims.cs), so
+    unlike everything else in this repo this builds and runs anywhere. That is the point, since the
+    logic under test is what rejects path traversal out of untrusted keys.
+  -->
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net48</TargetFramework>
+    <LangVersion>7.3</LangVersion>
+    <AssemblyName>AS2.ModApi.Tests</AssemblyName>
+    <RootNamespace>AS2.ModApi.Tests</RootNamespace>
+    <!-- The linked sources are net35-era and use no XML doc IDs this project needs to resolve. -->
+    <NoWarn>$(NoWarn);1591;0169</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!--
+      The production code under test. Kept to the files that carry the logic and nothing more: each
+      one added here is a file that must not reach for BepInEx or Unity. That constraint is why Str
+      and SelectorKind live in their own files rather than inside ModApiPlugin and AS2Events.
+    -->
+    <Compile Include="..\..\src\AS2.ModApi\TargetResolver.cs" Link="Production\TargetResolver.cs" />
+    <Compile Include="..\..\src\AS2.ModApi\PathGuard.cs"      Link="Production\PathGuard.cs" />
+    <Compile Include="..\..\src\AS2.ModApi\Str.cs"            Link="Production\Str.cs" />
+    <Compile Include="..\..\src\AS2.ModApi\SelectorKind.cs"   Link="Production\SelectorKind.cs" />
+  </ItemGroup>
+
+</Project>
