@@ -1,0 +1,288 @@
+using System;
+using System.Collections.Generic;
+using System.IO;
+using BepInEx;
+
+namespace AS2.ModApi.Tests
+{
+    /// <summary>
+    /// Cold checks for TargetResolver's path and key logic.
+    ///
+    /// These matter most for the escape rejections. FolderForKey and Normalize are what stop a
+    /// key -- which is built from a Steam Workshop folder name, or read back out of some mod's
+    /// saved JSON -- from naming a location outside the install. That is exactly the kind of guard
+    /// a later refactor removes by accident, and without this it would take a manual launch and a
+    /// careful read of the log to notice.
+    ///
+    /// Run with `dotnet run --project tests/AS2.ModApi.Tests`. Exit code 0 means everything passed.
+    /// </summary>
+    internal static class Program
+    {
+        private static int _passed;
+        private static readonly List<string> Failures = new List<string>();
+        private static string _root;
+
+        private static int Main()
+        {
+            _root = Path.Combine(Path.GetTempPath(), "as2-tests-" + Guid.NewGuid().ToString("N").Substring(0, 8));
+            Paths.GameRootPath = _root;
+
+            try
+            {
+                BuildFixture();
+
+                NormalizeAcceptsWhatTheGameHandsOut();
+                NormalizeRejectsEscapes();
+                NormalizeResolvesCasingAgainstDisk();
+                KeyForFolderContainment();
+                FolderForKeyContainment();
+                FileNameGuards();
+                EnumerateFindsEveryFolderShape();
+                NegativeCasingResultsAreNotCached();
+            }
+            catch (Exception e)
+            {
+                Failures.Add("A test threw, which is itself a failure: " + e);
+            }
+            finally
+            {
+                try { if (Directory.Exists(_root)) Directory.Delete(_root, true); } catch { }
+            }
+
+            Console.WriteLine();
+            if (Failures.Count == 0)
+            {
+                Console.WriteLine("All " + _passed + " checks passed.");
+                return 0;
+            }
+
+            Console.WriteLine(Failures.Count + " FAILED (" + _passed + " passed):");
+            foreach (string f in Failures) Console.WriteLine("  - " + f);
+            return 1;
+        }
+
+        // ---- The fixture --------------------------------------------------------------------
+        //
+        // Every folder shape TargetResolver documents, so Enumerate and the key builders are
+        // exercised against the real thing rather than against one easy case.
+
+        private const string Schema = "modsettings.lua";
+
+        private static void BuildFixture()
+        {
+            MakeTarget("skins/Plain");                    // plain local skin
+            MakeTarget("skins/123456/FromWorkshop");      // Workshop item, all-digit container
+            MakeTarget("mods/mymode");                    // a mode
+            MakeTarget("mods/mymode/skins/Dedicated");    // skin dedicated to that mode
+            Directory.CreateDirectory(Path.Combine(_root, "skins", "NoSchema"));  // must be ignored
+        }
+
+        private static void MakeTarget(string relative)
+        {
+            string dir = Path.Combine(_root, relative.Replace('/', Path.DirectorySeparatorChar));
+            Directory.CreateDirectory(dir);
+            File.WriteAllText(Path.Combine(dir, Schema), "-- fixture");
+        }
+
+        private static string Abs(string relative)
+        {
+            return Path.Combine(_root, relative.Replace('/', Path.DirectorySeparatorChar));
+        }
+
+        // ---- Normalize ----------------------------------------------------------------------
+
+        private static void NormalizeAcceptsWhatTheGameHandsOut()
+        {
+            // The game reports selectedSkinRelativePath with a leading slash, and is not consistent
+            // about separators or doubled ones.
+            Same("Normalize strips the game's leading slash", TargetResolver.Normalize("/skins/Plain"), "skins/Plain");
+            Same("Normalize converts backslashes", TargetResolver.Normalize(@"skins\Plain"), "skins/Plain");
+            Same("Normalize collapses doubled separators", TargetResolver.Normalize("skins//Plain"), "skins/Plain");
+            Same("Normalize handles a nested key", TargetResolver.Normalize("/mods/mymode/skins/Dedicated"),
+                 "mods/mymode/skins/Dedicated");
+
+            Null("Normalize(null) is null", TargetResolver.Normalize(null));
+            Null("Normalize(\"\") is null", TargetResolver.Normalize(""));
+            Null("Normalize(\"   \") is null", TargetResolver.Normalize("   "));
+            Null("Normalize(\"/\") is null", TargetResolver.Normalize("/"));
+
+            // A key naming nothing on disk still passes through: this must never turn a usable key
+            // into null just because the folder is missing.
+            Same("Normalize keeps an unknown key rather than nulling it",
+                 TargetResolver.Normalize("skins/NotInstalled"), "skins/NotInstalled");
+        }
+
+        private static void NormalizeRejectsEscapes()
+        {
+            foreach (string bad in new[] { "../outside", "skins/../../outside", "./skins/Plain", "skins/./Plain", ".." })
+            {
+                ModApiPlugin.Log.Clear();
+                Null("Normalize rejects '" + bad + "'", TargetResolver.Normalize(bad));
+                True("Normalize says why it refused '" + bad + "'", ModApiPlugin.Log.Mentions("Refusing"));
+            }
+
+            foreach (string rooted in new[] { "C:/Windows", "C:/Windows/System32", "c:/windows", "skins/Plain:stream" })
+            {
+                ModApiPlugin.Log.Clear();
+                Null("Normalize rejects the absolute or stream-qualified '" + rooted + "'",
+                     TargetResolver.Normalize(rooted));
+                True("Normalize says why it refused '" + rooted + "'", ModApiPlugin.Log.Mentions("Refusing"));
+            }
+        }
+
+        private static void NormalizeResolvesCasingAgainstDisk()
+        {
+            // The reason this method exists: the game reports the same skin two ways, and a key that
+            // forks in spelling strands a mod's saved settings.
+            Same("Normalize corrects a lowercased key to the on-disk casing",
+                 TargetResolver.Normalize("skins/plain"), "skins/Plain");
+            Same("Normalize corrects an uppercased key",
+                 TargetResolver.Normalize("SKINS/PLAIN"), "skins/Plain");
+            Same("Normalize corrects casing at every level",
+                 TargetResolver.Normalize("MODS/MYMODE/SKINS/DEDICATED"), "mods/mymode/skins/Dedicated");
+        }
+
+        // ---- Containment --------------------------------------------------------------------
+
+        private static void KeyForFolderContainment()
+        {
+            Same("KeyForFolder builds a key for a folder in the install",
+                 TargetResolver.KeyForFolder(Abs("skins/Plain")), "skins/Plain");
+
+            Null("KeyForFolder refuses a folder outside the install",
+                 TargetResolver.KeyForFolder(@"C:\Windows\System32"));
+
+            // The trailing-separator case the RootPrefix comment calls out: a sibling install whose
+            // name merely starts with the root's would pass a naive StartsWith.
+            Null("KeyForFolder refuses a sibling whose path starts with the root",
+                 TargetResolver.KeyForFolder(_root + " Backup"));
+
+            Null("KeyForFolder(null) is null", TargetResolver.KeyForFolder(null));
+        }
+
+        private static void FolderForKeyContainment()
+        {
+            Same("FolderForKey resolves a good key to its folder",
+                 TargetResolver.FolderForKey("skins/Plain"), Abs("skins/Plain"));
+
+            foreach (string escape in new[] { "../outside", "../../Windows", "skins/../../outside" })
+            {
+                ModApiPlugin.Log.Clear();
+                Null("FolderForKey refuses the traversal '" + escape + "'", TargetResolver.FolderForKey(escape));
+            }
+
+            foreach (string rooted in new[] { "C:/Windows", @"C:\Windows" })
+            {
+                ModApiPlugin.Log.Clear();
+                // Path.Combine returns a rooted second argument whole and throws the root away, so
+                // this is the case that most needs the containment test rather than a dot-segment scan.
+                Null("FolderForKey refuses the rooted key '" + rooted + "'", TargetResolver.FolderForKey(rooted));
+                True("FolderForKey says why it refused '" + rooted + "'", ModApiPlugin.Log.Mentions("outside the game root"));
+            }
+
+            Null("FolderForKey(null) is null", TargetResolver.FolderForKey(null));
+        }
+
+        // ---- File-name guards ----------------------------------------------------------------
+
+        private static void FileNameGuards()
+        {
+            True("HasFile finds a schema that is really there", TargetResolver.HasFile("skins/Plain", Schema));
+            False("HasFile is false for a folder without one", TargetResolver.HasFile("skins/NoSchema", Schema));
+
+            foreach (string bad in new[] { "../secrets.json", @"..\secrets.json", "sub/dir.json", @"C:\Windows\win.ini", "..", "" })
+            {
+                ModApiPlugin.Log.Clear();
+                False("HasFile refuses the non-plain name '" + bad + "'", TargetResolver.HasFile("skins/Plain", bad));
+            }
+
+            // An absolute file name would make the File.Exists test true for every folder inspected,
+            // so Enumerate would answer "all of them" -- a wrong answer that looks like a working one.
+            string everywhere = Path.Combine(Abs("skins/Plain"), Schema);
+            ModApiPlugin.Log.Clear();
+            List<Target> bogus = TargetResolver.Enumerate(everywhere);
+            True("Enumerate refuses an absolute file name", bogus != null && bogus.Count == 0);
+            True("Enumerate says why it refused", ModApiPlugin.Log.Mentions("Refusing"));
+        }
+
+        // ---- Enumerate ------------------------------------------------------------------------
+
+        private static void EnumerateFindsEveryFolderShape()
+        {
+            List<Target> found = TargetResolver.Enumerate(Schema);
+
+            var keys = new List<string>();
+            foreach (Target t in found) keys.Add(t.Key);
+
+            True("Enumerate finds the plain skin", keys.Contains("skins/Plain"));
+            True("Enumerate descends into an all-digit Workshop container", keys.Contains("skins/123456/FromWorkshop"));
+            True("Enumerate finds the mode", keys.Contains("mods/mymode"));
+            True("Enumerate finds a mode's dedicated skin", keys.Contains("mods/mymode/skins/Dedicated"));
+            False("Enumerate skips a folder with no schema", keys.Contains("skins/NoSchema"));
+            Same("Enumerate found exactly the four fixtures", found.Count.ToString(), "4");
+
+            // Skins first, then modes; that ordering is what keeps a settings list stable.
+            True("Enumerate returns skins before modes",
+                 found.Count == 4 && found[0].Kind == SelectorKind.Skin && found[3].Kind == SelectorKind.Mode);
+
+            foreach (Target t in found)
+                True("Enumerate's FolderPath for " + t.Key + " exists", Directory.Exists(t.FolderPath));
+        }
+
+        // ---- Regression: issue #2 -------------------------------------------------------------
+
+        private static void NegativeCasingResultsAreNotCached()
+        {
+            // A Workshop item that is still downloading when something first asks about it. Caching
+            // the failed lookup pinned the asker's spelling for the rest of the process, so the
+            // folder's real casing was never picked up again that session.
+            const string key = "skins/999888/LateArrival";
+
+            Same("before it lands, the key passes through unchanged",
+                 TargetResolver.Normalize(key), "skins/999888/LateArrival");
+
+            // It arrives, and Steam spells the folder differently from the caller.
+            Directory.CreateDirectory(Path.Combine(_root, "skins", "999888", "latearrival"));
+
+            Same("once it lands, the next call picks up the on-disk casing",
+                 TargetResolver.Normalize(key), "skins/999888/latearrival");
+        }
+
+        // ---- Assertions -------------------------------------------------------------------------
+
+        private static void Same(string what, string actual, string expected)
+        {
+            // Ordinal: the whole point of several of these is which casing came back.
+            if (string.Equals(actual, expected, StringComparison.Ordinal)) Pass(what);
+            else Fail(what + " -- expected '" + (expected ?? "<null>") + "', got '" + (actual ?? "<null>") + "'");
+        }
+
+        private static void Null(string what, string actual)
+        {
+            if (actual == null) Pass(what);
+            else Fail(what + " -- expected null, got '" + actual + "'");
+        }
+
+        private static void True(string what, bool actual)
+        {
+            if (actual) Pass(what); else Fail(what + " -- expected true");
+        }
+
+        private static void False(string what, bool actual)
+        {
+            if (!actual) Pass(what); else Fail(what + " -- expected false");
+        }
+
+        private static void Pass(string what)
+        {
+            _passed++;
+            Console.WriteLine("  PASS  " + what);
+        }
+
+        private static void Fail(string what)
+        {
+            Failures.Add(what);
+            Console.WriteLine("  FAIL  " + what);
+        }
+    }
+}

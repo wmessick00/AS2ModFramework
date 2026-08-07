@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Reflection;
 using HarmonyLib;
 using UnityEngine;
@@ -129,6 +130,53 @@ namespace AS2.ModApi
             }
         }
 
+        // ---- Never-throw plumbing ---------------------------------------------------------------
+        //
+        // Everything public below draws, and drawing is where this assembly is least in control of
+        // its caller. AS2Ui is public API -- the README points mods at it -- so these run inside
+        // somebody else's OnGUI, or, when the caller has misread the docs, somewhere that is not
+        // OnGUI at all. The rest of the framework already holds the line that a mod which throws
+        // must not take the game down; AS2ModMenu was only covered because ModApiPlugin.OnGUI wraps
+        // the whole draw, which does nothing for a mod calling Button directly. So each entry point
+        // guards, catches, logs once, and returns something the caller can carry on with.
+
+        private static readonly HashSet<string> Warned = new HashSet<string>(StringComparer.Ordinal);
+
+        /// <summary>
+        /// Logs a message the first time it is seen and drops every repeat.
+        ///
+        /// OnGUI runs several times per frame, so a failure here is never a single event: it is the
+        /// same line a few hundred times a second. Plain logging would bury whatever else was in
+        /// LogOutput.log within moments of the first fault, which is the opposite of useful when the
+        /// log is how anybody diagnoses this framework.
+        /// </summary>
+        private static void WarnOnce(string message)
+        {
+            try
+            {
+                lock (Warned) { if (!Warned.Add(message)) return; }
+                ModApiPlugin.Log.LogWarning(message);
+            }
+            catch { /* a logger that can break drawing is worse than a missing warning */ }
+        }
+
+        /// <summary>
+        /// Whether there is no IMGUI event to draw against, meaning the caller is not inside OnGUI.
+        ///
+        /// This is the misuse a mod author actually commits: AS2Ui looks like an ordinary helper, so
+        /// it gets called from Update or from a coroutine, where Event.current is null and every GUI
+        /// call below would throw. Answering true returns before anything is drawn and, importantly,
+        /// before any control id is claimed -- bailing out mid-control would shift the id sequence
+        /// for whoever is drawing legitimately and break their layout instead.
+        /// </summary>
+        private static bool NoGuiContext(string caller)
+        {
+            if (Event.current != null) return false;
+            WarnOnce(caller + " was called with no current IMGUI event, so it did nothing. "
+                   + "AS2Ui may only be used from inside OnGUI.");
+            return true;
+        }
+
         // ---- Styles ----------------------------------------------------------------------------
 
         private static bool _built;
@@ -162,10 +210,21 @@ namespace AS2.ModApi
         public static void EnsureStyles()
         {
             if (_built && _builtWidth == Screen.width && _builtHeight == Screen.height) return;
-            _built = true;
-            _builtWidth = Screen.width;
-            _builtHeight = Screen.height;
+            if (NoGuiContext("AS2Ui.EnsureStyles")) return;
 
+            try { BuildStyles(); }
+            catch (Exception ex)
+            {
+                // Deliberately leaves _built false so the next frame tries again. The alternative,
+                // marking the styles built on the way in, is what the previous version did: one
+                // throw partway through left half the styles null and every later call took the
+                // early return above, so the panel stayed broken for the rest of the session.
+                WarnOnce("AS2Ui could not build its styles: " + ex.Message);
+            }
+        }
+
+        private static void BuildStyles()
+        {
             _white = Texture2D.whiteTexture;
 
             // The font itself does not change with the resolution, and the search walks every
@@ -203,6 +262,11 @@ namespace AS2.ModApi
             DimWrap = new GUIStyle(Dim);
             DimWrap.alignment = TextAnchor.UpperLeft;
             DimWrap.wordWrap = true;
+
+            // Last, so that these only claim "built at this size" once every style above exists.
+            _builtWidth = Screen.width;
+            _builtHeight = Screen.height;
+            _built = true;
         }
 
         /// <summary>
@@ -244,23 +308,40 @@ namespace AS2.ModApi
 
         // ---- Primitives -------------------------------------------------------------------------
 
+        /// <summary>
+        /// Fills a rect. The colour is restored in a finally rather than after the draw, because a
+        /// throw between the two would otherwise leave GUI.color set and tint everything drawn
+        /// afterwards by anyone, which reads as a rendering bug in whichever mod drew next.
+        /// </summary>
         public static void Fill(Rect r, Color c)
         {
+            if (NoGuiContext("AS2Ui.Fill")) return;
+
             Color previous = GUI.color;
-            GUI.color = c;
-            GUI.DrawTexture(r, _white ?? Texture2D.whiteTexture);
-            GUI.color = previous;
+            try
+            {
+                GUI.color = c;
+                GUI.DrawTexture(r, _white ?? Texture2D.whiteTexture);
+            }
+            catch (Exception ex) { WarnOnce("AS2Ui.Fill could not draw: " + ex.Message); }
+            finally { GUI.color = previous; }
         }
 
         /// <summary>Panel background plus the thin border the game's dialog has.</summary>
         public static void Panel(Rect r)
         {
-            Fill(r, PanelBg);
-            float t = Mathf.Max(1f, Unit);
-            Fill(new Rect(r.x, r.y, r.width, t), PanelBorder);
-            Fill(new Rect(r.x, r.yMax - t, r.width, t), PanelBorder);
-            Fill(new Rect(r.x, r.y, t, r.height), PanelBorder);
-            Fill(new Rect(r.xMax - t, r.y, t, r.height), PanelBorder);
+            if (NoGuiContext("AS2Ui.Panel")) return;
+
+            try
+            {
+                Fill(r, PanelBg);
+                float t = Mathf.Max(1f, Unit);
+                Fill(new Rect(r.x, r.y, r.width, t), PanelBorder);
+                Fill(new Rect(r.x, r.yMax - t, r.width, t), PanelBorder);
+                Fill(new Rect(r.x, r.y, t, r.height), PanelBorder);
+                Fill(new Rect(r.xMax - t, r.y, t, r.height), PanelBorder);
+            }
+            catch (Exception ex) { WarnOnce("AS2Ui.Panel could not draw: " + ex.Message); }
         }
 
         private static readonly int SliderHash = "AS2UiSlider".GetHashCode();
@@ -275,6 +356,18 @@ namespace AS2.ModApi
         /// directly is a dozen lines and behaves predictably.
         /// </summary>
         public static float Slider(Rect r, float value, float min, float max)
+        {
+            if (NoGuiContext("AS2Ui.Slider")) return value;
+
+            try { return SliderBody(r, value, min, max); }
+            catch (Exception ex)
+            {
+                WarnOnce("AS2Ui.Slider failed: " + ex.Message);
+                return value;
+            }
+        }
+
+        private static float SliderBody(Rect r, float value, float min, float max)
         {
             float u = Unit;
             float handleW = Mathf.Max(2f, 9f * u);
@@ -331,31 +424,48 @@ namespace AS2.ModApi
             return min + Mathf.Clamp01((mouseX - trackX - handleW * 0.5f) / usable) * span;
         }
 
-        /// <summary>The game's checkbox: a white square with a cross when set.</summary>
+        /// <summary>
+        /// The game's checkbox: a white square with a cross when set.
+        ///
+        /// The GUI matrix is restored in a finally. It is rotated twice while drawing the cross, and
+        /// a throw between the rotation and the restore would leave every later control in the frame
+        /// drawn at 45 degrees -- a spectacular failure to pin on whichever mod drew next.
+        /// </summary>
         public static bool Toggle(Rect r, bool value)
         {
-            float u = Unit;
-            float box = 34f * u;
-            var boxRect = new Rect(r.x, r.center.y - box * 0.5f, box, box);
+            if (NoGuiContext("AS2Ui.Toggle")) return value;
 
-            Fill(boxRect, TextColor);
-            if (value)
+            Matrix4x4 matrix = GUI.matrix;
+            try
             {
-                float inset = 7f * u;
-                var inner = new Rect(boxRect.x + inset, boxRect.y + inset, box - inset * 2f, box - inset * 2f);
-                float t = Mathf.Max(1f, 4f * u);
-                // Two bars rotated into a cross, drawn with the GUI matrix so it stays crisp.
-                Matrix4x4 m = GUI.matrix;
-                GUIUtility.RotateAroundPivot(45f, inner.center);
-                Fill(new Rect(inner.x, inner.center.y - t * 0.5f, inner.width, t), PanelBg);
-                GUI.matrix = m;
-                GUIUtility.RotateAroundPivot(-45f, inner.center);
-                Fill(new Rect(inner.x, inner.center.y - t * 0.5f, inner.width, t), PanelBg);
-                GUI.matrix = m;
-            }
+                float u = Unit;
+                float box = 34f * u;
+                var boxRect = new Rect(r.x, r.center.y - box * 0.5f, box, box);
 
-            if (GUI.Button(boxRect, GUIContent.none, new GUIStyle())) value = !value;
-            return value;
+                Fill(boxRect, TextColor);
+                if (value)
+                {
+                    float inset = 7f * u;
+                    var inner = new Rect(boxRect.x + inset, boxRect.y + inset, box - inset * 2f, box - inset * 2f);
+                    float t = Mathf.Max(1f, 4f * u);
+                    // Two bars rotated into a cross, drawn with the GUI matrix so it stays crisp.
+                    GUIUtility.RotateAroundPivot(45f, inner.center);
+                    Fill(new Rect(inner.x, inner.center.y - t * 0.5f, inner.width, t), PanelBg);
+                    GUI.matrix = matrix;
+                    GUIUtility.RotateAroundPivot(-45f, inner.center);
+                    Fill(new Rect(inner.x, inner.center.y - t * 0.5f, inner.width, t), PanelBg);
+                    GUI.matrix = matrix;
+                }
+
+                if (GUI.Button(boxRect, GUIContent.none, new GUIStyle())) value = !value;
+                return value;
+            }
+            catch (Exception ex)
+            {
+                WarnOnce("AS2Ui.Toggle failed: " + ex.Message);
+                return value;
+            }
+            finally { GUI.matrix = matrix; }
         }
 
         private static GUIStyle _buttonStyle;
@@ -382,7 +492,23 @@ namespace AS2.ModApi
         /// </summary>
         public static bool Button(Rect r, string label, bool enabled = true)
         {
+            if (NoGuiContext("AS2Ui.Button")) return false;
+
+            try { return ButtonBody(r, label, enabled); }
+            catch (Exception ex)
+            {
+                WarnOnce("AS2Ui.Button failed: " + ex.Message);
+                return false;
+            }
+        }
+
+        private static bool ButtonBody(Rect r, string label, bool enabled)
+        {
             EnsureStyles();
+
+            // EnsureStyles logs and gives up rather than throwing, so the styles can still be null
+            // here on a build that failed. Drawing nothing beats an NRE out of the framework.
+            if (Label == null) return false;
 
             bool hover = enabled && r.Contains(Event.current.mousePosition);
             Fill(r, !enabled ? ButtonBgDisabled : hover ? ButtonBgHover : ButtonBg);

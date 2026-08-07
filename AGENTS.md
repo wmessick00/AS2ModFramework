@@ -13,6 +13,7 @@ arrangement with a real plugin loader.
 | `src/AS2.Bootstrap` | doorstop time, pre-Unity | Bridges the patch's Doorstop 3.4.1 to BepInEx, keeps the patch's auto-updater alive |
 | `src/AS2.ModApi` | BepInEx plugin | Harmony patches that turn the game's internals into events |
 | `src/AS2.Probe` | dev only, not shipped | Dumps live member signatures off the running game |
+| `tests/AS2.ModApi.Tests` | `dotnet run`, no game needed | Cold checks for the path and key logic, compiled from the real sources |
 
 The consumer of `AS2.ModApi` lives in a **separate repo**, `AS2-SkinSettings`, checked out beside
 this one at `..\AS2-SkinSettings`. Changing an `AS2Events` signature means updating that repo too.
@@ -20,10 +21,11 @@ this one at `..\AS2-SkinSettings`. Changing an `AS2Events` signature means updat
 Do not confuse it with `<game>\ModSettings\`, which holds only `settings.json` — player data the
 plugin resolves from the game root at runtime, not source.
 
-## Testing means running the game
+## Testing mostly means running the game
 
-There are no unit tests; the game is the harness. Two working preferences follow, and both are worth
-respecting even though neither is enforced by anything:
+Anything bound to Unity or BepInEx can only be tested by playing the game, and a human has to drive
+it. Two working preferences follow, and both are worth respecting even though neither is enforced by
+anything:
 
 - **Prefer to let a human start and quit the game** rather than launching it from a tool. Launching
   the executable directly, outside Steam, can trigger a license popup. If you are an agent working
@@ -31,8 +33,20 @@ respecting even though neither is enforced by anything:
 - **Batch verification.** A launch is a manual step, so a round costs real attention. Decide
   everything you want to learn *before* asking, and add whatever logging covers all of it at once.
 
-Prefer cold checks — reflection-only assembly loads, prototyping path logic against the real folders
-— for anything that does not truly need the game running. See
+**The path and key logic is the exception, and it has tests.** Run them before asking for a launch:
+
+```bash
+dotnet run --project tests/AS2.ModApi.Tests    # exit 0 = passed
+```
+
+They compile the real `TargetResolver.cs`, `PathGuard.cs`, `Str.cs` and `SelectorKind.cs` rather than
+referencing the built DLL, so they cannot drift from what ships, and they need no game installed.
+That is why `Str` and `SelectorKind` sit in their own files: every file on that project's `Compile`
+list has to stay free of BepInEx and Unity. Adding an event or a hook does not belong there; changing
+how a key is built or validated does.
+
+Prefer cold checks generally — reflection-only assembly loads, prototyping path logic against the
+real folders — for anything that does not truly need the game running. See
 [docs/verification.md](docs/verification.md).
 
 ## Documentation
