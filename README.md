@@ -223,6 +223,13 @@ the shipped `BepInEx\core\` DLLs can be hashed against the upstream zip to confi
 | `src/AS2.Bootstrap` | Doorstop entry point. Starts BepInEx and keeps the community patch's auto-updater working. |
 | `src/AS2.ModApi` | BepInEx plugin. Harmony patches that turn the game's internals into events every mod can use. |
 | `src/AS2.Probe` | Development probe, not shipped. Dumps live member signatures and verifies patching works. |
+| `tests/AS2.ModApi.Tests` | Cold checks for the path and key logic. Compiles the real sources, needs no game installed. |
+
+The tests are the one part of this repo that builds without Audiosurf 2:
+
+```
+dotnet run --project tests/AS2.ModApi.Tests
+```
 
 ## Compatibility
 

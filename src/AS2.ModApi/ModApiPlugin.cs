@@ -80,18 +80,4 @@ namespace AS2.ModApi
         }
     }
 
-    /// <summary>
-    /// Small .NET 3.5 gap-fillers. The game runs Unity 2017's legacy Mono profile, so anything
-    /// added in .NET 4 is unavailable -- no string.IsNullOrWhiteSpace, no Task, no ValueTuple.
-    /// </summary>
-    internal static class Str
-    {
-        public static bool IsBlank(string s)
-        {
-            if (string.IsNullOrEmpty(s)) return true;
-            for (int i = 0; i < s.Length; i++)
-                if (!char.IsWhiteSpace(s[i])) return false;
-            return true;
-        }
-    }
 }

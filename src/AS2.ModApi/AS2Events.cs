@@ -3,12 +3,6 @@ using LuaInterface;
 
 namespace AS2.ModApi
 {
-    public enum SelectorKind
-    {
-        Skin,
-        Mode
-    }
-
     /// <summary>
     /// The event surface for Audiosurf 2 mods.
     ///
