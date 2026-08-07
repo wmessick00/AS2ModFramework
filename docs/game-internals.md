@@ -43,6 +43,41 @@ Expect it to fire several times per song (roughly three `Skin`/`Mod` pairs obser
 `LuaController.OnDisable` disposes the state and `Awake` makes a new one, so per-song recreation is
 normal — make injection idempotent and cheap.
 
+#### The state is sandboxed, and what you register is not
+
+`NewLua` is not just a factory. Its whole body, read off the shipped `Assembly-CSharp` with Cecil:
+
+```csharp
+lua = new Lua(true);
+if (fullSecuritySandbox) { lua.SecureLuaFunctions(); LuaSandbox.Sandboxify(lua); }
+LuaSandbox.LoadSafeTypes(lua);
+return lua;
+```
+
+`Sandboxify` runs this against the new state, so any of these still being present is a hard failure:
+
+```lua
+assert(nil == package)    assert(nil == io)         assert(nil == require)
+assert(nil == module)     assert(nil == os.execute) assert(nil == os.exit)
+assert(nil == os.getenv)  assert(nil == os.remove)  assert(nil == os.rename)
+assert(nil == luanet)     assert(nil == load_assembly)
+```
+
+`luanet` and `load_assembly` are LuaInterface's bridge to the CLR; `LoadSafeTypes` then narrows
+reachable types to a whitelist of about forty. This is deliberate and it is not decoration — **skin
+and mode scripts are Steam Workshop downloads**. A player subscribes to a skin and someone else's
+Lua runs on their machine.
+
+Because the postfix runs *after* `NewLua` returns, the state `LuaStateCreated` gives you is already
+sandboxed. What it does not do is sandbox **you**: `RegisterFunction` never consults the whitelist,
+so anything a mod registers is reachable by every Workshop skin the player has. Register nothing
+with file, network, process or reflection reach, and treat every argument as hostile — it arrives
+from Lua, so the signature guarantees nothing about it.
+
+`fullSecuritySandbox` defaults to true in the static constructor and is cleared by exactly one thing:
+the `+disablemodsecuritysandbox` launch argument. A player who passes it gets an unsandboxed state,
+and so does anything subscribed to this event.
+
 ### The states themselves
 
 ```
@@ -111,6 +146,10 @@ Absolute, and only populated once a song has been set up — so they are a *fall
 (`skins\mystical\tooltip_EN.txt`). Since keys end up in mods' saved JSON, `TargetResolver.Normalize`
 resolves each segment against the real on-disk folder name and caches the result. Always build keys
 through it rather than using the game's strings directly.
+
+Only *successful* resolutions are cached. A key that did not match a folder is walked again on the
+next call, so a Workshop item that is still downloading when something first asks about it is picked
+up once it lands, rather than keeping the asker's spelling for the whole session.
 
 The three folder shapes that must all key correctly:
 

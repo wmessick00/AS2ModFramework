@@ -145,6 +145,14 @@ New-Item -ItemType Directory -Path $stageDir | Out-Null
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 $archive = [IO.Compression.ZipFile]::OpenRead($BepInExZip)
 
+# An entry name is data from the archive, not a path we chose. "BepInEx/core/../../../evil.dll"
+# satisfies the prefix test below and Join-Path would resolve it happily outside the staging
+# folder -- the classic zip slip. The pinned hash makes that unreachable for a normal release
+# build, but -SkipHashCheck and -BepInExZip each exist precisely to set that pin aside, so the
+# containment is asserted here rather than inferred from the hash.
+$stageCoreFull = [IO.Path]::GetFullPath($stageCore)
+if (-not $stageCoreFull.EndsWith('\')) { $stageCoreFull += '\' }
+
 try {
     foreach ($entry in $archive.Entries) {
         if ($entry.FullName.EndsWith('/')) { continue }
@@ -159,9 +167,15 @@ try {
         if (-not $entry.FullName.StartsWith('BepInEx/core/')) { continue }
 
         $target = Join-Path $stageDir ($entry.FullName -replace '/', '\')
-        $parent = Split-Path $target -Parent
+
+        $targetFull = [IO.Path]::GetFullPath($target)
+        if (-not $targetFull.StartsWith($stageCoreFull, [StringComparison]::OrdinalIgnoreCase)) {
+            throw "Refusing zip entry '$($entry.FullName)': it resolves to $targetFull, outside $stageCoreFull. Is $BepInExZip really the official BepInEx asset?"
+        }
+
+        $parent = Split-Path $targetFull -Parent
         if (-not (Test-Path $parent)) { New-Item -ItemType Directory -Path $parent -Force | Out-Null }
-        [IO.Compression.ZipFileExtensions]::ExtractToFile($entry, $target, $true)
+        [IO.Compression.ZipFileExtensions]::ExtractToFile($entry, $targetFull, $true)
     }
 }
 finally {
