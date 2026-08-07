@@ -147,6 +147,10 @@ Absolute, and only populated once a song has been set up — so they are a *fall
 resolves each segment against the real on-disk folder name and caches the result. Always build keys
 through it rather than using the game's strings directly.
 
+Only *successful* resolutions are cached. A key that did not match a folder is walked again on the
+next call, so a Workshop item that is still downloading when something first asks about it is picked
+up once it lands, rather than keeping the asker's spelling for the whole session.
+
 The three folder shapes that must all key correctly:
 
 ```
