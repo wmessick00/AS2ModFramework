@@ -151,11 +151,10 @@ namespace AS2.ModApi
             new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
         /// <summary>
-        /// Well above the number of skins and modes any install has, so the cache never clears in
-        /// normal use. It exists because the keys come from mods rather than only from the game: a
-        /// plugin normalising strings in a loop would otherwise grow this dictionary for the life
-        /// of the process. Clearing wholesale rather than evicting is enough -- a miss costs one
-        /// directory listing, and reaching this at all means the cache was not working anyway.
+        /// A backstop rather than the real bound. Only keys that resolved to a folder on disk are
+        /// cached, so the dictionary is already limited by what the install contains; this caps it
+        /// anyway rather than trusting that reasoning to survive a future edit. Clearing wholesale
+        /// rather than evicting is enough -- a miss costs one directory listing.
         /// </summary>
         private const int MaxCachedKeys = 4096;
 
@@ -164,8 +163,17 @@ namespace AS2.ModApi
         /// does not correspond to a real folder is returned unchanged, so this can never turn a
         /// usable key into null.
         ///
-        /// Cached: the filesystem walk happens once per distinct key, and these are only built when
-        /// the selection changes or a Lua state is created.
+        /// **Only successful resolutions are cached.** A key that did not resolve is walked again
+        /// next time, which costs one directory listing and buys the case that actually happens: a
+        /// Steam Workshop item still downloading when something first asks about it. Caching that
+        /// failure would pin the caller's own spelling for the rest of the process -- exactly the
+        /// fork in a mod's saved JSON this method exists to prevent, and it would defeat it in the
+        /// one session where the folder appeared late.
+        ///
+        /// Successes need no equivalent treatment. A folder already on disk does not change how it
+        /// spells itself mid-session, and a rename produces a different key, which is a different
+        /// cache entry and so a fresh walk. A case-only rename is the sole stale case left, and on
+        /// Windows both spellings name the same folder, so it costs nothing but the spelling.
         /// </summary>
         private static string Canonicalize(string key)
         {
@@ -175,7 +183,24 @@ namespace AS2.ModApi
                 if (CanonicalCache.TryGetValue(key, out hit)) return hit;
             }
 
-            string result = key;
+            string resolved = ResolveCasing(key);
+            if (resolved == null) return key;
+
+            lock (CanonicalCache)
+            {
+                if (CanonicalCache.Count >= MaxCachedKeys) CanonicalCache.Clear();
+                CanonicalCache[key] = resolved;
+            }
+            return resolved;
+        }
+
+        /// <summary>
+        /// The key with every segment respelled the way the folder on disk spells it, or null if
+        /// the walk did not find a real folder for each one. Null is "ask me again later", which is
+        /// what keeps a folder that appears mid-session from being missed for the whole session.
+        /// </summary>
+        private static string ResolveCasing(string key)
+        {
             try
             {
                 string current = GameRoot;
@@ -191,25 +216,20 @@ namespace AS2.ModApi
                         if (string.Equals(name, parts[i], StringComparison.OrdinalIgnoreCase)) { match = name; break; }
                     }
 
-                    if (match == null) { rebuilt = null; break; }
+                    if (match == null) return null;
 
                     rebuilt[i] = match;
                     current = Path.Combine(current, match);
                 }
 
-                if (rebuilt != null) result = string.Join("/", rebuilt);
+                return string.Join("/", rebuilt);
             }
             catch
             {
-                // An unreadable directory just means we keep the key as the game spelled it.
+                // An unreadable directory just means we keep the key as the game spelled it -- and
+                // that we do not remember having failed, since the next call may well succeed.
+                return null;
             }
-
-            lock (CanonicalCache)
-            {
-                if (CanonicalCache.Count >= MaxCachedKeys) CanonicalCache.Clear();
-                CanonicalCache[key] = result;
-            }
-            return result;
         }
 
         /// <summary>
