@@ -186,14 +186,23 @@ the dialog is genuinely up.
 space and scaled by `AS2Ui.Unit`, with positions as offsets from the centre of the screen or of the
 dialog because EZGUI centres it:
 
-| Thing | Design units |
-| --- | --- |
-| Dialog | 1716 x 1216, screen centred |
-| Label column right edge | 814 from the dialog's left edge |
-| Control column | x 838, width 350 |
-| Value column | x 1206 |
-| Row pitch | 83 |
-| Free space for a mod's button | 320 x 60, centred 666 left of the dialog's centre, 60 above its bottom edge |
+| Thing | Design units | In code |
+| --- | --- | --- |
+| Dialog | 1716 x 1216, screen centred | `AS2Ui.DialogRect` |
+| Label column right edge | 814 from the dialog's left edge | `AS2Ui.LabelColumnRight` |
+| Control column | x 838, width 350 | `AS2Ui.ControlColumnX` / `ControlColumnWidth` |
+| Value column | x 1206 | `AS2Ui.ValueColumnX` |
+| Row pitch | 83 | `AS2Ui.RowPitch` |
+| Free space for a mod's button | 320 x 60, centred 666 left of the dialog's centre, 60 above its bottom edge | `AS2Ui.EntryButtonRect` |
+
+Use `AS2Ui.RowRects(row, out label, out control, out value)` rather than these numbers directly. They
+were prose here before they were code, and every mod that wanted a vanilla-looking row copied them
+out of this table into its own drifting set of constants.
+
+A boolean gets a **checkbox, not a two-stop slider** — that is what the game does for Autofind Music,
+Vsync and the scoreboard toggles, and a slider that only moves between two positions reads as broken.
+`AS2Ui.ToggleRow(row, label, value)` draws the whole row; `AS2Ui.Toggle(rect, value)` is the bare
+control if you are laying out yourself.
 
 **The dialog scales with screen width, not height.** At 1280x768 it measures 858x608 — 1716x1216 at
 exactly half scale — and its rows sit 41.5px apart; a height-derived scale would give 915x648 and a

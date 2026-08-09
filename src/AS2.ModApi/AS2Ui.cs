@@ -99,6 +99,44 @@ namespace AS2.ModApi
             }
         }
 
+        // ---- Row geometry -----------------------------------------------------------------------
+        //
+        // The columns the game lays a settings row out on, measured off the real dialog at 2560x1440
+        // and expressed in design units from the row's left edge. Multiply by Unit, or just use
+        // RowRects. These were documented in docs/game-internals.md before they were code, which
+        // meant every mod that wanted a vanilla-looking row copied the numbers out of the prose and
+        // owned its own drifting copy of them.
+
+        /// <summary>Right edge of the label column. Labels are right-aligned to it.</summary>
+        public const float LabelColumnRight = 814f;
+
+        /// <summary>Left edge of the control column, where a slider or checkbox starts.</summary>
+        public const float ControlColumnX = 838f;
+
+        /// <summary>Width of the control column.</summary>
+        public const float ControlColumnWidth = 350f;
+
+        /// <summary>Left edge of the value readout, e.g. "100%" or "Ultra".</summary>
+        public const float ValueColumnX = 1206f;
+
+        /// <summary>Distance from one row's top to the next. The game's rows are 83 apart.</summary>
+        public const float RowPitch = 83f;
+
+        /// <summary>
+        /// Splits a row into the three rects the game's own settings dialog uses: a right-aligned
+        /// label, the control, and the value readout to its right.
+        ///
+        /// Pass the full-width row; everything is derived from its x and its height, so this works
+        /// the same inside a scroll view as it does against the dialog.
+        /// </summary>
+        public static void RowRects(Rect row, out Rect label, out Rect control, out Rect value)
+        {
+            float u = Unit;
+            label   = new Rect(row.x, row.y, LabelColumnRight * u, row.height);
+            control = new Rect(row.x + ControlColumnX * u, row.y, ControlColumnWidth * u, row.height);
+            value   = new Rect(row.x + ValueColumnX * u, row.y, Mathf.Max(0f, row.width - ValueColumnX * u), row.height);
+        }
+
         // ---- Settings dialog state ------------------------------------------------------------
 
         private static FieldInfo _dialogOpenField;
@@ -466,6 +504,42 @@ namespace AS2.ModApi
                 return value;
             }
             finally { GUI.matrix = matrix; }
+        }
+
+        /// <summary>
+        /// A whole settings row for a boolean: right-aligned label, then the game's checkbox in the
+        /// control column. Returns the new value, so use it the way you would GUI.Toggle:
+        ///
+        ///     myFlag = AS2Ui.ToggleRow(row, "Autofind Music", myFlag);
+        ///
+        /// This is what the game does for Autofind Music, Vsync and the scoreboard options, and it
+        /// is why a boolean should not be drawn as a two-stop slider: the game has a checkbox and a
+        /// player reads a slider that only moves between two positions as a broken slider.
+        ///
+        /// No value readout, matching the game -- the box is the readout. Rows are
+        /// <see cref="RowPitch"/> apart.
+        /// </summary>
+        public static bool ToggleRow(Rect row, string label, bool value)
+        {
+            if (NoGuiContext("AS2Ui.ToggleRow")) return value;
+
+            try
+            {
+                EnsureStyles();
+
+                Rect labelRect, control, unused;
+                RowRects(row, out labelRect, out control, out unused);
+
+                if (!Str.IsBlank(label) && LabelRight != null)
+                    GUI.Label(labelRect, label, LabelRight);
+
+                return Toggle(control, value);
+            }
+            catch (Exception ex)
+            {
+                WarnOnce("AS2Ui.ToggleRow failed: " + ex.Message);
+                return value;
+            }
         }
 
         private static GUIStyle _buttonStyle;
