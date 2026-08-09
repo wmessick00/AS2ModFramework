@@ -116,6 +116,37 @@ got there. It only *looks* harmless because Windows paths are case-insensitive a
 `SettingsStore` happens to use an `OrdinalIgnoreCase` dictionary. Keys reach mods' saved JSON, so
 build them through `TargetResolver.Normalize`, which resolves real on-disk casing.
 
+## Paths
+
+### A junction under `skins/` or `mods/` is refused, not followed
+
+Containment in `TargetResolver` is settled by comparing the resolved path against the game root **as
+a string**. That test cannot see a reparse point: `<game>\skins\Foo` reads as inside the install
+whether the folder is really there or is a junction to `D:\anything`, and `Directory.GetDirectories`
+and `File.Exists` follow it out either way. Creating a junction on Windows needs no elevation, so
+this is not an exotic case.
+
+Every path component *below* the game root therefore also goes through `PathGuard.IsLink`
+(`FILE_ATTRIBUTE_REPARSE_POINT`), and a linked one is refused with a warning naming it. That is a
+reject rather than a resolve-and-re-check, because resolving a reparse point to its target needs
+.NET 6 or P/Invoke and this assembly is net35 with neither.
+
+The consequences are the trade-off, not oversights:
+
+- **Junctioning `<game>\skins` onto another drive stops working here.** People really do this for
+  disk space. Those skins keep loading — the game does not care — but this framework will not list
+  them and will not store settings for them. The log says which folder and why.
+- **The game root itself is never judged**, only components below it. BepInEx resolves the root from
+  the running process, and a Steam library reached through a junction is an ordinary setup.
+- **A linked *file* inside a real folder is allowed.** A symlinked `modsettings.lua` yields no key
+  claiming to be install content; it only means the bytes came from elsewhere, chosen by somebody who
+  could already write into the game folder.
+- **Attributes that cannot be read count as linked.** A guard that cannot answer has to refuse, or a
+  failed attribute call quietly switches the check off.
+
+The cold checks cover it: they build a real junction with `mklink /J`, assert it resolves, and only
+then assert every entry point refuses it. Issue #13.
+
 ## Tooling
 
 ### Prefer to have a person start the game

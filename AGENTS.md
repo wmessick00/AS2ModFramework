@@ -109,4 +109,6 @@ Both are claims the README makes to users, so changing either is a decision, not
 
 Anything turning a caller-supplied name into a path goes through `PathGuard.IsPlainFileName` or
 `TargetResolver.FolderForKey`. Keys are built from Workshop folder names; they are not trusted input
-just because the game handed them over.
+just because the game handed them over. Containment is two questions, not one: the string test says
+where a path is *spelled*, and `PathGuard.IsLink` says whether it leads there — see
+[docs/gotchas.md](docs/gotchas.md#a-junction-under-skins-or-mods-is-refused-not-followed).
