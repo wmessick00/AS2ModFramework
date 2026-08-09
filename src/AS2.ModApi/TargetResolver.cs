@@ -59,6 +59,9 @@ namespace AS2.ModApi
         /// <summary>
         /// Turns an absolute folder path into its storage key, or null if it is not under the game
         /// root.
+        ///
+        /// "Under the game root" is two questions, because a path can read as contained without
+        /// being contained: see <see cref="PathGuard.LinkedSegment"/>.
         /// </summary>
         public static string KeyForFolder(string absoluteFolder)
         {
@@ -68,6 +71,15 @@ namespace AS2.ModApi
                 string full = Path.GetFullPath(absoluteFolder);
                 string root = RootPrefix();
                 if (!full.StartsWith(root, StringComparison.OrdinalIgnoreCase)) return null;
+
+                string linked = PathGuard.LinkedSegment(full, root);
+                if (linked != null)
+                {
+                    ModApiPlugin.Log.LogWarning("Could not build a key for '" + absoluteFolder + "': '" + linked +
+                                                "' is a junction or symbolic link, and this API does not follow one -- it cannot tell where the link really leads.");
+                    return null;
+                }
+
                 return Normalize(full.Substring(root.Length));
             }
             catch (Exception e)
@@ -218,8 +230,15 @@ namespace AS2.ModApi
 
                     if (match == null) return null;
 
+                    // A linked folder is not part of the install, so there is no on-disk casing here
+                    // worth adopting. Returning null leaves the key spelled the way the caller spelled
+                    // it and, just as importantly, does not cache it; FolderForKey refuses it either
+                    // way, and this way nothing here has quietly blessed the path as real.
+                    string child = Path.Combine(current, match);
+                    if (PathGuard.IsLink(child)) return null;
+
                     rebuilt[i] = match;
-                    current = Path.Combine(current, match);
+                    current = child;
                 }
 
                 return string.Join("/", rebuilt);
@@ -240,18 +259,33 @@ namespace AS2.ModApi
         /// <see cref="KeyForFolder"/> only ever emits contained keys, so this is that same check in
         /// the other direction -- without it a ".." key, or a rooted one like "C:/Windows" that
         /// Path.Combine returns whole and throws the game root away, resolves outside the install.
+        ///
+        /// The string test is necessary and not sufficient. A key can name a folder that is spelled
+        /// inside the install and is a junction to somewhere else entirely, which every path
+        /// operation below this point would follow without complaint; see
+        /// <see cref="PathGuard.LinkedSegment"/>.
         /// </summary>
         public static string FolderForKey(string key)
         {
             if (Str.IsBlank(key)) return null;
             try
             {
+                string root = RootPrefix();
                 string full = Path.GetFullPath(Path.Combine(GameRoot, key.Replace('/', Path.DirectorySeparatorChar)));
-                if (!full.StartsWith(RootPrefix(), StringComparison.OrdinalIgnoreCase))
+                if (!full.StartsWith(root, StringComparison.OrdinalIgnoreCase))
                 {
                     ModApiPlugin.Log.LogWarning("Refusing the key '" + key + "': it resolves outside the game root.");
                     return null;
                 }
+
+                string linked = PathGuard.LinkedSegment(full, root);
+                if (linked != null)
+                {
+                    ModApiPlugin.Log.LogWarning("Refusing the key '" + key + "': '" + linked +
+                                                "' is a junction or symbolic link, and this API does not follow one -- it cannot tell where the link really leads.");
+                    return null;
+                }
+
                 return full;
             }
             catch (Exception e)
@@ -318,12 +352,24 @@ namespace AS2.ModApi
         /// Scans one container directory a single level deep, descending into all-digit Workshop
         /// containers. Returns every candidate folder inspected (not just the matches), so callers
         /// can walk further down.
+        ///
+        /// The container itself is checked for being a link because it is the one path here that
+        /// does not arrive through <see cref="SafeSubdirectories"/>: skins\, mods\ and a mode's own
+        /// skins\ are all composed rather than listed. KeyForFolder would refuse whatever came back
+        /// anyway, but only after this had already walked somebody else's disk.
         /// </summary>
         private static List<string> CollectFrom(string containerDir, SelectorKind kind, string fileName,
                                                 List<Target> into, HashSet<string> seen)
         {
             var inspected = new List<string>();
             if (Str.IsBlank(containerDir) || !SafeDirExists(containerDir)) return inspected;
+
+            if (PathGuard.IsLink(containerDir))
+            {
+                ModApiPlugin.Log.LogWarning("Not looking inside '" + containerDir +
+                                            "': it is a junction or symbolic link, and this API only manages folders that really live in the game folder.");
+                return inspected;
+            }
 
             foreach (string dir in SafeSubdirectories(containerDir))
             {
@@ -372,14 +418,35 @@ namespace AS2.ModApi
             catch { return false; }
         }
 
+        /// <summary>
+        /// The subdirectories of a folder that are really there. Links are dropped rather than
+        /// followed, which is what keeps an enumeration from wandering off the install: a junction
+        /// under skins\ is listed by Directory.GetDirectories exactly like a folder, and everything
+        /// downstream -- the recursion into a mode's skins\, the File.Exists, the key -- would treat
+        /// its contents as install content.
+        /// </summary>
         private static string[] SafeSubdirectories(string path)
         {
-            try { return Directory.GetDirectories(path); }
+            string[] all;
+            try { all = Directory.GetDirectories(path); }
             catch (Exception e)
             {
                 ModApiPlugin.Log.LogWarning("Could not list '" + path + "': " + e.Message);
                 return new string[0];
             }
+
+            var real = new List<string>(all.Length);
+            foreach (string dir in all)
+            {
+                if (PathGuard.IsLink(dir))
+                {
+                    ModApiPlugin.Log.LogWarning("Skipped '" + dir +
+                                                "': it is a junction or symbolic link, and this API only manages folders that really live in the game folder.");
+                    continue;
+                }
+                real.Add(dir);
+            }
+            return real.ToArray();
         }
     }
 }

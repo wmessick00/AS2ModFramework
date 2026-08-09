@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using BepInEx;
 
@@ -10,9 +11,10 @@ namespace AS2.ModApi.Tests
     ///
     /// These matter most for the escape rejections. FolderForKey and Normalize are what stop a
     /// key -- which is built from a Steam Workshop folder name, or read back out of some mod's
-    /// saved JSON -- from naming a location outside the install. That is exactly the kind of guard
-    /// a later refactor removes by accident, and without this it would take a manual launch and a
-    /// careful read of the log to notice.
+    /// saved JSON -- from naming a location outside the install, whether it says so in the path or
+    /// hides it behind a junction. That is exactly the kind of guard a later refactor removes by
+    /// accident, and without this it would take a manual launch and a careful read of the log to
+    /// notice.
     ///
     /// Run with `dotnet run --project tests/AS2.ModApi.Tests`. Exit code 0 means everything passed.
     /// </summary>
@@ -20,11 +22,16 @@ namespace AS2.ModApi.Tests
     {
         private static int _passed;
         private static readonly List<string> Failures = new List<string>();
+        private static readonly List<string> Skipped = new List<string>();
+        private static readonly List<string> Junctions = new List<string>();
         private static string _root;
+        private static string _outside;
 
         private static int Main()
         {
-            _root = Path.Combine(Path.GetTempPath(), "as2-tests-" + Guid.NewGuid().ToString("N").Substring(0, 8));
+            string stem = Path.Combine(Path.GetTempPath(), "as2-tests-" + Guid.NewGuid().ToString("N").Substring(0, 8));
+            _root = stem;
+            _outside = stem + "-outside";
             Paths.GameRootPath = _root;
 
             try
@@ -39,6 +46,7 @@ namespace AS2.ModApi.Tests
                 FileNameGuards();
                 EnumerateFindsEveryFolderShape();
                 NegativeCasingResultsAreNotCached();
+                LinkedFoldersAreNotFollowed();
             }
             catch (Exception e)
             {
@@ -46,10 +54,12 @@ namespace AS2.ModApi.Tests
             }
             finally
             {
-                try { if (Directory.Exists(_root)) Directory.Delete(_root, true); } catch { }
+                Cleanup();
             }
 
             Console.WriteLine();
+            foreach (string s in Skipped) Console.WriteLine("SKIPPED: " + s);
+
             if (Failures.Count == 0)
             {
                 Console.WriteLine("All " + _passed + " checks passed.");
@@ -59,6 +69,21 @@ namespace AS2.ModApi.Tests
             Console.WriteLine(Failures.Count + " FAILED (" + _passed + " passed):");
             foreach (string f in Failures) Console.WriteLine("  - " + f);
             return 1;
+        }
+
+        /// <summary>
+        /// Junctions come out first and one at a time. Directory.Delete(recursive) is documented not
+        /// to follow reparse points, but "documented not to" is a thin thing to bet somebody's temp
+        /// folder on, and removing the link itself never touches what it points at.
+        /// </summary>
+        private static void Cleanup()
+        {
+            foreach (string junction in Junctions)
+            {
+                try { if (Directory.Exists(junction)) Directory.Delete(junction, false); } catch { }
+            }
+            try { if (Directory.Exists(_root)) Directory.Delete(_root, true); } catch { }
+            try { if (Directory.Exists(_outside)) Directory.Delete(_outside, true); } catch { }
         }
 
         // ---- The fixture --------------------------------------------------------------------
@@ -248,6 +273,111 @@ namespace AS2.ModApi.Tests
                  TargetResolver.Normalize(key), "skins/999888/latearrival");
         }
 
+        // ---- Regression: issue #13 -------------------------------------------------------------
+
+        /// <summary>
+        /// Containment used to be decided by string comparison alone, which cannot see a junction:
+        /// "&lt;root&gt;\skins\Linked" reads as inside the install whatever it really points at, and
+        /// every path call underneath -- GetDirectories, File.Exists, whatever a mod does with the
+        /// folder afterwards -- follows it out without a word. Creating a junction on Windows needs
+        /// no elevation, so this is not a privileged trick either.
+        ///
+        /// This runs last because it adds link fixtures the earlier counts do not expect.
+        /// </summary>
+        private static void LinkedFoldersAreNotFollowed()
+        {
+            // What the links point at: a schema at the top, and one a level down, so both a link at
+            // the target folder and a link on the way to it are covered.
+            Directory.CreateDirectory(_outside);
+            File.WriteAllText(Path.Combine(_outside, Schema), "-- outside the install");
+            Directory.CreateDirectory(Path.Combine(_outside, "Deep"));
+            File.WriteAllText(Path.Combine(_outside, "Deep", Schema), "-- outside the install");
+
+            // A mode whose dedicated skins folder is the link. That folder is composed rather than
+            // listed, so it is the one container the subdirectory filter never sees.
+            Directory.CreateDirectory(Abs("mods/linkedmode"));
+
+            if (!TryMakeJunction(Abs("skins/Linked"), _outside) ||
+                !TryMakeJunction(Abs("mods/linkedmode/skins"), _outside))
+            {
+                Skip("Link containment is unverified: this machine would not create a junction. " +
+                     "CI runs on Windows, where mklink /J needs no elevation.");
+                return;
+            }
+
+            // Without this the rest could pass because nothing was following anything. The junction
+            // has to really work for the checks below to mean what they say.
+            True("the fixture junction really does resolve",
+                 File.Exists(Path.Combine(Abs("skins/Linked"), Schema)));
+
+            ModApiPlugin.Log.Clear();
+            Null("KeyForFolder refuses a linked folder inside the install",
+                 TargetResolver.KeyForFolder(Abs("skins/Linked")));
+            True("KeyForFolder says the folder was a link",
+                 ModApiPlugin.Log.Mentions("junction or symbolic link"));
+
+            Null("KeyForFolder refuses a folder reached through a link",
+                 TargetResolver.KeyForFolder(Abs("skins/Linked/Deep")));
+
+            ModApiPlugin.Log.Clear();
+            Null("FolderForKey refuses a key naming a linked folder", TargetResolver.FolderForKey("skins/Linked"));
+            True("FolderForKey says the key went through a link",
+                 ModApiPlugin.Log.Mentions("junction or symbolic link"));
+
+            Null("FolderForKey refuses a key that only passes through a link",
+                 TargetResolver.FolderForKey("skins/Linked/Deep"));
+
+            False("HasFile does not report a schema behind a link",
+                  TargetResolver.HasFile("skins/Linked", Schema));
+
+            // Adopting the on-disk casing would be this API saying the folder is install content.
+            Same("Normalize does not adopt a linked folder's casing",
+                 TargetResolver.Normalize("skins/linked"), "skins/linked");
+
+            List<Target> found = TargetResolver.Enumerate(Schema);
+            var keys = new List<string>();
+            foreach (Target t in found) keys.Add(t.Key);
+
+            False("Enumerate does not list a linked skin folder", keys.Contains("skins/Linked"));
+            False("Enumerate does not descend through a mode's linked skins folder",
+                  keys.Contains("mods/linkedmode/skins/Deep"));
+            Same("Enumerate still found exactly the four real fixtures", found.Count.ToString(), "4");
+        }
+
+        /// <summary>
+        /// Creates an NTFS junction, or returns false if this machine will not make one.
+        ///
+        /// A junction rather than a symbolic link because creating one needs neither elevation nor
+        /// developer mode -- which is precisely why it is worth guarding against -- and mklink is
+        /// the only way to get one without P/Invoke.
+        /// </summary>
+        private static bool TryMakeJunction(string link, string target)
+        {
+            try
+            {
+                var startInfo = new ProcessStartInfo("cmd.exe", "/c mklink /J \"" + link + "\" \"" + target + "\"")
+                {
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true
+                };
+
+                using (Process p = Process.Start(startInfo))
+                {
+                    // Read before waiting: a full pipe buffer would deadlock the wait.
+                    p.StandardOutput.ReadToEnd();
+                    p.StandardError.ReadToEnd();
+                    p.WaitForExit(10000);
+                }
+
+                if (!Directory.Exists(link)) return false;
+                Junctions.Add(link);
+                return true;
+            }
+            catch { return false; }
+        }
+
         // ---- Assertions -------------------------------------------------------------------------
 
         private static void Same(string what, string actual, string expected)
@@ -283,6 +413,17 @@ namespace AS2.ModApi.Tests
         {
             Failures.Add(what);
             Console.WriteLine("  FAIL  " + what);
+        }
+
+        /// <summary>
+        /// A check the machine could not set up. Not a failure -- there is nothing wrong with the
+        /// code -- but it is printed again in the summary, because a guard nobody exercised looks
+        /// exactly like a guard that works.
+        /// </summary>
+        private static void Skip(string why)
+        {
+            Skipped.Add(why);
+            Console.WriteLine("  SKIP  " + why);
         }
     }
 }
