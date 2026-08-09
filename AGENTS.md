@@ -60,6 +60,7 @@ re-deriving; where a fact was checked, the doc says how, so you can re-check rat
 | [docs/loading-chain.md](docs/loading-chain.md) | Anything about how mods get loaded, doorstop, install |
 | [docs/game-internals.md](docs/game-internals.md) | You are hooking something in the game |
 | [docs/gotchas.md](docs/gotchas.md) | **Before writing any code here.** The expensive traps |
+| [docs/distribution.md](docs/distribution.md) | Publishing to Nexus, Vortex compatibility, the package split |
 | [docs/verification.md](docs/verification.md) | You changed something and need to prove it works |
 | [docs/reference/probe-dump.txt](docs/reference/probe-dump.txt) | Ground truth: real signatures off the live game |
 
