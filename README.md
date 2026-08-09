@@ -1,5 +1,7 @@
 # AS2ModFramework
 
+[![Cold checks](https://github.com/wmessick00/AS2ModFramework/actions/workflows/cold-checks.yml/badge.svg)](https://github.com/wmessick00/AS2ModFramework/actions/workflows/cold-checks.yml)
+
 A BepInEx + Harmony modding foundation for Audiosurf 2 — so mods can hook the game properly, and so
 more than one of them can be installed at a time.
 
