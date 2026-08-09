@@ -308,72 +308,173 @@ else { Write-Warning 'No LICENSE file in the repo root; the package will ship wi
 
 # ---- 6. Zip and checksum ----------------------------------------------------------------------
 
-if (-not (Test-Path $distDir)) { New-Item -ItemType Directory -Path $distDir | Out-Null }
-$zipName   = "AS2ModFramework-$version.zip"
-$outputZip = Join-Path $distDir $zipName
-if (Test-Path $outputZip) { Remove-Item $outputZip -Force }
+# Three archives, from one staging folder.
+#
+#   AS2ModFramework   everything, the single download for the GitHub release
+#   AS2ModLoader      BepInEx core + the bootstrap
+#   AS2ModApi         AS2.ModApi.dll alone
+#
+# The split is not cosmetic. A mod manager deploys a mod by linking files into one directory, so
+# AS2ModApi -- a single DLL into BepInEx\plugins\ -- is manageable, while the loader has two install
+# roots and needs a Steam launch option no manager can set. Bundled together, every consumer of the
+# API inherits the loader's unmanageability. See docs/distribution.md.
+#
+# The combined archive stays, and stays the recommendation on GitHub: that audience is extracting a
+# zip by hand and should not have to fetch two. Same files either way, so a user can start with the
+# combined download and later update the API alone.
 
-[IO.Compression.ZipFile]::CreateFromDirectory($stageDir, $outputZip)
+if (-not (Test-Path $distDir)) { New-Item -ItemType Directory -Path $distDir | Out-Null }
 
 # sha256sum format (lowercase hash, two spaces, filename) so it verifies with either
 # `sha256sum -c` or Get-FileHash. Published beside the zip so a download can be checked against
 # something other than the file it came with.
-$zipHash  = (Get-FileHash $outputZip -Algorithm SHA256).Hash.ToLowerInvariant()
-$shaFile  = "$outputZip.sha256"
-Set-Content -Path $shaFile -Value "$zipHash  $zipName" -Encoding ascii
+function New-Package($sourceDir, $name) {
+    $zipPath = Join-Path $distDir "$name.zip"
+    if (Test-Path $zipPath) { Remove-Item $zipPath -Force }
 
-Write-Step "Wrote $outputZip"
-Get-ChildItem $stageDir -Recurse -File | ForEach-Object {
-    "    " + $_.FullName.Substring($stageDir.Length + 1)
+    [IO.Compression.ZipFile]::CreateFromDirectory($sourceDir, $zipPath)
+
+    $hash = (Get-FileHash $zipPath -Algorithm SHA256).Hash.ToLowerInvariant()
+    $sha  = "$zipPath.sha256"
+    Set-Content -Path $sha -Value "$hash  $name.zip" -Encoding ascii
+
+    Write-Step "Wrote $name.zip"
+    Get-ChildItem $sourceDir -Recurse -File | ForEach-Object {
+        "    " + $_.FullName.Substring($sourceDir.Length + 1)
+    }
+    Write-Host "    SHA256  $hash" -ForegroundColor Green
+    Write-Host ""
+
+    return [pscustomobject]@{ Name = "$name.zip"; Zip = $zipPath; Sha = $sha; Hash = $hash }
 }
-Write-Host ""
-Write-Host "    SHA256  $zipHash" -ForegroundColor Green
+
+# Sub-stages, assembled by copying out of the combined one so the two can never disagree about the
+# bytes they ship.
+$loaderStage = Join-Path $repoRoot 'build\stage-loader'
+$apiStage    = Join-Path $repoRoot 'build\stage-api'
+
+foreach ($d in @($loaderStage, $apiStage)) {
+    if (Test-Path $d) { Remove-Item $d -Recurse -Force }
+    New-Item -ItemType Directory -Path $d | Out-Null
+}
+
+# Loader: BepInEx core and the bootstrap. Carries the third-party notices, because it is the package
+# that actually contains BepInEx and LGPL requires the notice to travel with the files.
+New-Item -ItemType Directory -Path (Join-Path $loaderStage 'BepInEx') -Force | Out-Null
+Copy-Item (Join-Path $stageDir 'BepInEx\core')  (Join-Path $loaderStage 'BepInEx\core') -Recurse -Force
+Copy-Item (Join-Path $stageDir 'AS2ModLoader')  $loaderStage -Recurse -Force
+foreach ($f in @('LICENSE.txt', 'THIRD-PARTY-NOTICES.txt', 'README.txt')) {
+    $src = Join-Path $stageDir $f
+    if (Test-Path $src) { Copy-Item $src $loaderStage -Force }
+}
+
+# API: one DLL. No BepInEx here, so no third-party notice is owed.
+New-Item -ItemType Directory -Path (Join-Path $apiStage 'BepInEx\plugins') -Force | Out-Null
+Copy-Item $modApiDll (Join-Path $apiStage 'BepInEx\plugins') -Force
+if (Test-Path (Join-Path $stageDir 'LICENSE.txt')) {
+    Copy-Item (Join-Path $stageDir 'LICENSE.txt') $apiStage -Force
+}
+
+$apiReadme = @"
+AS2ModApi $version
+==================
+
+The shared mod API for Audiosurf 2: the events, UI helpers and Mod Menu that mods build on.
+
+This package is ONLY the API. It does nothing on its own and will not load without the mod loader.
+
+REQUIRES
+  1. The Audiosurf 2 Community Patch.
+  2. AS2ModLoader $version, which bundles BepInEx and includes the Steam launch option step.
+     Install that first; if the game is not already loading mods, this will not change that.
+
+INSTALLING
+  Extract into your Audiosurf 2 folder, so that BepInEx\plugins\AS2.ModApi.dll lands next to your
+  other plugins. There is no launch option to set for this package; the loader owns that.
+
+DID IT WORK?
+  BepInEx\LogOutput.log should contain:
+    [Info   :Audiosurf 2 Mod API] Mod API ready. Game root: ...
+
+UNINSTALLING
+  Delete BepInEx\plugins\AS2.ModApi.dll. Mods that depend on it will stop loading.
+"@
+Set-Content -Path (Join-Path $apiStage 'README.txt') -Value $apiReadme -Encoding utf8
+
+$packages = @(
+    (New-Package $stageDir    "AS2ModFramework-$version"),
+    (New-Package $loaderStage "AS2ModLoader-$version"),
+    (New-Package $apiStage    "AS2ModApi-$version")
+)
+
+# Named for the release notes and the -Publish step below.
+$outputZip = $packages[0].Zip
+$shaFile   = $packages[0].Sha
+$zipName   = $packages[0].Name
+$zipHash   = $packages[0].Hash
 
 # ---- 7. Publish -------------------------------------------------------------------------------
 
 $tag = "v$version"
 
+# Every zip and every checksum, so a release carries the combined download and both split packages.
+$assets = @()
+foreach ($p in $packages) { $assets += $p.Zip; $assets += $p.Sha }
+
 if (-not $Publish) {
     Write-Host ""
     Write-Step 'Not published. To publish this release:'
     Write-Host "    .\tools\pack.ps1 -Publish"
-    Write-Host "  or upload $zipName and $zipName.sha256 to a new '$tag' release by hand."
+    Write-Host "  or upload these to a new '$tag' release by hand:"
+    foreach ($p in $packages) { Write-Host "       $($p.Name)  +  $($p.Name).sha256" }
     return
 }
 
 $gh = Get-Command gh -ErrorAction SilentlyContinue
 if (-not $gh) {
+    $assetList = ($packages | ForEach-Object { "       $($_.Name)`n       $($_.Name).sha256" }) -join "`n"
+    $hashList  = ($packages | ForEach-Object { "       $($_.Hash)  $($_.Name)" }) -join "`n"
     throw @"
 -Publish needs the GitHub CLI, which is not installed. Either install it from
 https://cli.github.com/ and re-run, or publish by hand:
 
   1. https://github.com/wmessick00/AS2ModFramework/releases/new
   2. Tag: $tag
-  3. Attach both files from build\dist\:
-       $zipName
-       $zipName.sha256
-  4. Put the checksum in the release notes:
-       SHA256  $zipHash
+  3. Attach all six files from build\dist\:
+$assetList
+  4. Put the checksums in the release notes:
+$hashList
 "@
 }
 
 Write-Step "Creating release $tag"
 
+$checksums = ($packages | ForEach-Object { "    $($_.Hash)  $($_.Name)" }) -join "`n"
+
 $notes = @"
-Extract into your Audiosurf 2 folder and add the Steam launch option -- see README.txt in the
-archive, or the install section of the repo README.
+**Most people want ``$zipName``** -- extract it into your Audiosurf 2 folder and add the Steam
+launch option. See README.txt in the archive, or the install section of the repo README.
 
 Requires the Audiosurf 2 Community Patch. BepInEx $BepInExVersion is bundled; do not install it
 separately.
 
-Verify the download before extracting:
+### The split packages
+
+Same files, for anyone who wants the pieces separately:
+
+- ``AS2ModLoader-$version.zip`` -- BepInEx and the bootstrap. Required by every mod, and the package
+  that needs the Steam launch option.
+- ``AS2ModApi-$version.zip`` -- the shared mod API alone, a single DLL into ``BepInEx\plugins\``.
+  Update this on its own when events change, without re-downloading BepInEx. Needs the loader.
+
+Verify a download before extracting:
 
     Get-FileHash .\$zipName -Algorithm SHA256
 
-    SHA256  $zipHash
+$checksums
 "@
 
-& gh release create $tag $outputZip $shaFile --title "AS2ModFramework $version" --notes $notes
+& gh release create $tag @assets --title "AS2ModFramework $version" --notes $notes
 if ($LASTEXITCODE -ne 0) { throw "gh release create failed for $tag" }
 
 Write-Step "Published $tag"

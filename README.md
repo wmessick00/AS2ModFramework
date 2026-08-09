@@ -66,6 +66,24 @@ bootstrap then re-asserts that key on every launch, so a patch update costs one 
 manual repair — but this install does modify a file the patch owns, which is why it is the fallback
 and not the recommendation.
 
+### The split packages
+
+The release also carries the same files as two smaller archives, for anyone who wants the pieces
+separately:
+
+| Package | What it is |
+| --- | --- |
+| `AS2ModLoader-<version>.zip` | BepInEx and the bootstrap. Required by every mod, and the package the Steam launch option points at |
+| `AS2ModApi-<version>.zip` | The shared mod API alone — one DLL into `BepInEx\plugins\` |
+
+Same files either way, so installing the combined archive and later updating `AS2ModApi` on its own
+works fine. That is the point of the split: the API changes when events are added, the loader changes
+almost never, and nobody should re-download BepInEx for an event signature. It also matters for mod
+managers, which can deploy a single DLL into one folder but cannot set a Steam launch option — see
+[docs/distribution.md](docs/distribution.md).
+
+**If you are installing by hand, take the combined archive.** Two downloads buy you nothing here.
+
 ### Uninstalling
 
 Drop the launch option and delete `AS2ModLoader\` and `BepInEx\`. If you used the ini install, set it
