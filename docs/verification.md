@@ -138,9 +138,14 @@ for why, and `Shims.cs` for the two external statics it fakes. Adding a `using B
 constraint working, not a problem to route around.
 
 Run it after touching anything in `TargetResolver`, `PathGuard`, `Normalize` or `FolderForKey`. The
-traversal and rooted-path rejections in particular are the sort of guard a refactor deletes without
-meaning to, and before these tests existed nothing would have caught that short of a manual launch
-and a careful read of the log.
+traversal, rooted-path and junction rejections in particular are the sort of guard a refactor deletes
+without meaning to, and before these tests existed nothing would have caught that short of a manual
+launch and a careful read of the log.
+
+One check reports `SKIP` rather than `PASS` or `FAIL`: the junction cases need the machine to create
+a real NTFS junction, and a run that could not is neither a pass nor a failure. Skips are repeated in
+the summary so they cannot pass for coverage. CI is Windows, where `mklink /J` needs no elevation, so
+a skip there means something is wrong with the runner.
 
 **Assembly shape** (entry points, references, CLR version) via reflection-only load:
 
