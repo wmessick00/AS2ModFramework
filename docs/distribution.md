@@ -50,8 +50,9 @@ Vortex deploys a mod by linking files from a staging folder into **one** directo
 
 ## The split this argues for
 
-Two packages, which is [already the decision for Thunderstore](../memory/thunderstore-packaging.md)
-and has never been implemented — `tools/pack.ps1` still emits one archive.
+Two packages, which was [already the decision for Thunderstore](../memory/thunderstore-packaging.md).
+**`tools/pack.ps1` now does this**, emitting `AS2ModFramework`, `AS2ModLoader` and `AS2ModApi` with a
+checksum each.
 
 | Package | Contents | Vortex |
 | --- | --- | --- |
@@ -72,9 +73,10 @@ changes almost never, and bundling forces a re-download of BepInEx for an event 
 Ordered by what blocks what. None of it is worth doing before the game is listed, except the first,
 which is worth doing anyway.
 
-1. **`pack.ps1` emits two archives** instead of one. The staging already separates cleanly; it is
-   the zip step that merges them. Keep emitting the combined archive too — the GitHub release is a
-   single download on purpose and that audience is not running a mod manager.
+1. ~~**`pack.ps1` emits two archives** instead of one.~~ **Done.** It emits three: the combined
+   archive, which stays the recommendation for hand installs, plus `AS2ModLoader` and `AS2ModApi`.
+   The sub-packages are copied out of the combined staging folder rather than built separately, so
+   the archives cannot disagree about the bytes they ship.
 
 2. **Assembly version metadata.** `Directory.Build.props` sets `GenerateAssemblyInfo=false`, so the
    DLLs carry no version resource at all. `pack.ps1` reads `ModApiPlugin.Version` out of the source
