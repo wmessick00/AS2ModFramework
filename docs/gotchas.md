@@ -104,6 +104,20 @@ using `GUILayout` at all. `OverlayUI` in AS2-SkinSettings takes the second route
 explicit rects, which it needs anyway to line its columns up with the game's, and which removes the
 need to queue anything.
 
+### Mods register Mod Menu entries from whatever thread they like
+
+`AS2ModMenu.Register` is public API, and a plugin may call it from the callback of a web request or a
+file read. `OnGUI` walks the entries every frame, and more than once per frame, so a `List` that
+another thread adds to mid-draw throws `InvalidOperationException: Collection was modified`.
+`ModApiPlugin.OnGUI` catches that and closes the menu — so one mod's registration timing would shut
+the shared hub on every other mod for that frame.
+
+`Register` and `Unregister` therefore change the list while holding a lock and publish an immutable
+array; the drawing code reads that array and takes no lock at all. Read `Published` **once** at the
+top of any drawing code you add. IMGUI replays one structure for the input and Repaint events of the
+same frame, so a header count from one snapshot and rows from another is the `Mismatched LayoutGroup`
+bug above wearing a different hat. Issue #16.
+
 ### The input lock counter belongs to a UIManager instance
 
 See [game-internals.md](game-internals.md#input). Release the same manager you locked, or you
@@ -146,6 +160,34 @@ The consequences are the trade-off, not oversights:
 
 The cold checks cover it: they build a real junction with `mklink /J`, assert it resolves, and only
 then assert every entry point refuses it. Issue #13.
+
+### A file name that Windows reserves for a device is refused
+
+Anything that turns a caller-supplied name into a path goes through `PathGuard.IsPlainFileName`,
+which rejects separators, drive and stream qualifiers, the dot names, and — the part nobody expects —
+`CON`, `PRN`, `AUX`, `NUL`, `CONIN$`, `CONOUT$`, `COM0`–`COM9` and `LPT0`–`LPT9`. The device
+comparison uses the part of the name in front of the first dot,
+with the spaces around it removed, so `nul.json`, `NUL`, `nul.` and `nul .txt` are all refused;
+`console.json`, `com.json` and `com10.json` are ordinary names and pass.
+
+Win32 opens the device instead of a file for these, and the failure is silent in both directions:
+`File.WriteAllText` on `BepInEx\data\nul.json` reports success, writes nothing and leaves no file, so
+the mod reads back nothing next launch with no exception anywhere to explain it. The name is not
+always the mod author's own — `AS2Paths.DataFile` warns against naming a per-skin file after its
+storage key, and a storage key is built from a Steam Workshop folder name.
+
+**How much of the rule applies depends on the Windows build.** That is why the guard refuses by name
+rather than attempting the write and looking at the result:
+
+| Behaviour of | `<dir>\nul` | `<dir>\nul.json` |
+| --- | --- | --- |
+| What Microsoft documents, and Windows 10 | device | device |
+| Windows 11 build 26200 | device | ordinary file |
+
+The 26200 row was checked through `cmd.exe` and `File.WriteAllText` together, so it is Windows and
+not one runtime. .NET Framework refuses a bare `nul` itself with `NotSupportedException`; Mono 2017,
+which is what the game runs, promises nothing of the kind. The same file name therefore keeps one
+player's settings and loses another's. Issue #15.
 
 ## Tooling
 
