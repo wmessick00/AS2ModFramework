@@ -1,3 +1,4 @@
+﻿using System;
 using System.IO;
 
 namespace AS2.ModApi
@@ -23,7 +24,7 @@ namespace AS2.ModApi
     {
         /// <summary>
         /// Whether a name is a single file name and nothing more: no directory separator, no drive
-        /// or stream qualifier, and not "." or "..".
+        /// or stream qualifier, not "." or "..", and not a name Win32 reserves for a device.
         ///
         /// The three separators are tested by hand rather than left to GetInvalidFileNameChars
         /// because Mono decides that array's contents by platform, and these are exactly the
@@ -31,13 +32,78 @@ namespace AS2.ModApi
         /// characters, wildcards -- which matter for a well-formed path but not for escaping one.
         ///
         /// The dot names need spelling out separately: they contain no invalid character at all.
+        /// Neither do the device names, and those fail worse -- see <see cref="IsDeviceName"/>.
         /// </summary>
         internal static bool IsPlainFileName(string name)
         {
             if (Str.IsBlank(name)) return false;
             if (name == "." || name == "..") return false;
             if (name.IndexOf('/') >= 0 || name.IndexOf('\\') >= 0 || name.IndexOf(':') >= 0) return false;
+            if (IsDeviceName(name)) return false;
             return name.IndexOfAny(Path.GetInvalidFileNameChars()) < 0;
+        }
+
+        /// <summary>The device names that are a fixed word. The numbered ports are IsPortName's.</summary>
+        private static readonly string[] DeviceNames = { "CON", "PRN", "AUX", "NUL", "CONIN$", "CONOUT$" };
+
+        /// <summary>
+        /// Whether Win32 opens a device rather than a file for this name.
+        ///
+        /// A mod that writes its data to a device gets no exception and no file: the write reports
+        /// success, the bytes go nowhere, and the next launch reads back nothing. Every other
+        /// rejection here stops a write from landing in the wrong place; this one stops a write from
+        /// landing nowhere at all.
+        ///
+        /// The name that reaches this is often not the mod author's own. AS2Paths.DataFile documents
+        /// the temptation to name a per-skin file after its storage key, and a key is built from a
+        /// Steam Workshop folder name -- so "nul" is a name somebody else can choose.
+        ///
+        /// Win32 tests the part before the first dot and ignores the spaces around it, so "nul",
+        /// "NUL", "nul.json", "nul." and "nul .txt" are all one device. The whole part must match:
+        /// "console.json" and "nullable.json" are ordinary files.
+        ///
+        /// How far that reaches is not the same on every machine, which is the reason this refuses
+        /// by name instead of trying the write and looking at the result. Microsoft still documents
+        /// NUL.txt as the NUL device, and Windows 10 behaves that way; Windows 11 build 26200 makes
+        /// "nul.json" an ordinary file and keeps only the bare "nul" -- checked there through both
+        /// cmd.exe and File.WriteAllText, and written up on DeviceWritesReallyDisappear in
+        /// tests/AS2.ModApi.Tests. One player's saved settings would survive and another player's
+        /// would not.
+        /// </summary>
+        private static bool IsDeviceName(string name)
+        {
+            int dot = name.IndexOf('.');
+            string stem = (dot < 0 ? name : name.Substring(0, dot)).Trim();
+            if (stem.Length == 0) return false;
+
+            for (int i = 0; i < DeviceNames.Length; i++)
+                if (string.Equals(stem, DeviceNames[i], StringComparison.OrdinalIgnoreCase)) return true;
+
+            return IsPortName(stem);
+        }
+
+        /// <summary>
+        /// The serial and parallel port devices, COM0-COM9 and LPT0-LPT9.
+        ///
+        /// Windows also accepts a superscript digit for the first three of each. That is the one part
+        /// of this rule a reader would take for a typo, so the three code points are named rather
+        /// than typed: every source file here stays ASCII.
+        /// </summary>
+        private static bool IsPortName(string stem)
+        {
+            const char SuperscriptOne = (char)0x00B9;
+            const char SuperscriptTwo = (char)0x00B2;
+            const char SuperscriptThree = (char)0x00B3;
+
+            if (stem.Length != 4) return false;
+
+            bool port = stem.StartsWith("COM", StringComparison.OrdinalIgnoreCase)
+                     || stem.StartsWith("LPT", StringComparison.OrdinalIgnoreCase);
+            if (!port) return false;
+
+            char c = stem[3];
+            if (c >= '0' && c <= '9') return true;
+            return c == SuperscriptOne || c == SuperscriptTwo || c == SuperscriptThree;
         }
 
         /// <summary>

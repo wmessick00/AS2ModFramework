@@ -1,6 +1,9 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Reflection;
+using System.Text;
+using System.Threading;
 
 namespace AS2.Bootstrap
 {
@@ -205,6 +208,14 @@ namespace AS2.Bootstrap
         // ---- Doorstop config ------------------------------------------------------------------
 
         /// <summary>
+        /// How hard to try for exclusive access to doorstop_config.ini before leaving it for the
+        /// next launch. Deliberately short: this runs before Unity starts, so every millisecond
+        /// spent waiting here is a millisecond the player spends looking at nothing.
+        /// </summary>
+        private const int IniAttempts = 3;
+        private const int IniRetryDelayMs = 50;
+
+        /// <summary>
         /// Re-asserts targetAssembly in doorstop_config.ini, rewriting only that one key and leaving
         /// every other line untouched.
         ///
@@ -223,6 +234,14 @@ namespace AS2.Bootstrap
         /// mod loader that silently rewrites another project's config is precisely what that project
         /// is entitled to object to. With the launch option, this install adds AS2ModLoader\ and
         /// BepInEx\ and modifies no game file at all.
+        ///
+        /// The read and the write share one handle, opened with FileShare.None, because this file
+        /// has a second writer and we know who it is. The comment on PatchPreloaderRelative says it:
+        /// the old ModSettings build that used to hold this slot re-asserts itself three times a
+        /// session, and a patch update rewrites the file outright. Read, close, then write back, and
+        /// whatever the other process wrote in between is gone -- or worse, two writers land
+        /// together and the file that decides whether any mod loads is neither version. An exclusive
+        /// handle turns that into a sharing violation, which is a short retry rather than a loss.
         /// </summary>
         private static void EnsureDoorstopTarget(string root)
         {
@@ -235,9 +254,58 @@ namespace AS2.Bootstrap
             string ini = Path.Combine(root, "doorstop_config.ini");
             if (!File.Exists(ini)) return;
 
-            string[] lines = File.ReadAllLines(ini);
-            bool changed = false;
+            for (int attempt = 1; attempt <= IniAttempts; attempt++)
+            {
+                try
+                {
+                    using (var stream = new FileStream(ini, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+                    {
+                        string[] lines = ReadLines(stream);
 
+                        string previous = Retarget(lines);
+                        if (previous == null) return;
+
+                        WriteLines(stream, lines);
+                        BootLog.Info("Repaired doorstop_config.ini: targetAssembly was '" + previous
+                                   + "', now '" + OurTarget + "'.");
+                    }
+
+                    return;
+                }
+                catch (FileNotFoundException)
+                {
+                    // Gone between the existence test and the open. A patch update replacing the
+                    // file is the likely reason, and it wins: there is nothing here to repair.
+                    return;
+                }
+                catch (IOException e)
+                {
+                    // Another process holds the file. Most likely the patch updater we invoked a
+                    // moment ago, so a short wait is worth more than a whole launch without the
+                    // repair -- but only a short one, and only because the launch option install
+                    // never reaches this code at all.
+                    if (attempt == IniAttempts)
+                    {
+                        BootLog.Warn("Could not rewrite doorstop_config.ini; another process most likely holds it ("
+                                   + e.Message + "). Leaving it for the next launch.");
+                        return;
+                    }
+
+                    Thread.Sleep(IniRetryDelayMs);
+                }
+            }
+        }
+
+        /// <summary>
+        /// Points the target key at this bootstrap, and returns what the key said before.
+        ///
+        /// Null means there is nothing to write: either the key already names us, or the file has no
+        /// target key at all. Adding one is not this method's job. A config with no target key is not
+        /// the file doorstop launched this game from, and writing a new key into a file the community
+        /// patch owns would guess at a format nobody asked us to produce.
+        /// </summary>
+        private static string Retarget(string[] lines)
+        {
             for (int i = 0; i < lines.Length; i++)
             {
                 string trimmed = lines[i].TrimStart();
@@ -252,15 +320,56 @@ namespace AS2.Bootstrap
                 if (eq < 0) continue;
 
                 string current = lines[i].Substring(eq + 1).Trim();
-                if (string.Equals(current, OurTarget, StringComparison.OrdinalIgnoreCase)) return;
+                if (string.Equals(current, OurTarget, StringComparison.OrdinalIgnoreCase)) return null;
 
                 lines[i] = lines[i].Substring(0, eq + 1) + OurTarget;
-                changed = true;
-                BootLog.Info("Repaired doorstop_config.ini: targetAssembly was '" + current + "', now '" + OurTarget + "'.");
-                break;
+                return current;
             }
 
-            if (changed) File.WriteAllLines(ini, lines);
+            return null;
+        }
+
+        /// <summary>
+        /// Every line of the file, read through the handle the caller already holds.
+        ///
+        /// The reader is not disposed on purpose. Disposing it closes the stream the caller still
+        /// has to write to, and .NET 3.5 has no leaveOpen overload to say otherwise; the caller's
+        /// using block owns the stream. UTF-8 with byte order mark detection, which is what
+        /// File.ReadAllLines did here before.
+        /// </summary>
+        private static string[] ReadLines(FileStream stream)
+        {
+            var lines = new List<string>();
+            var reader = new StreamReader(stream, Encoding.UTF8, true);
+
+            string line;
+            while ((line = reader.ReadLine()) != null) lines.Add(line);
+
+            return lines.ToArray();
+        }
+
+        /// <summary>
+        /// Writes the lines back over the same handle.
+        ///
+        /// The new content goes down first and the file is truncated afterwards, rather than the
+        /// other way round. Truncating first leaves a moment where doorstop_config.ini is empty on
+        /// disk, and a machine that loses power in that moment costs the player the mod loader and
+        /// the patch updater together. This ordering can leave a fragment of the longer old file
+        /// behind instead, which doorstop reads as one unknown key.
+        ///
+        /// UTF-8 with no byte order mark, and Environment.NewLine between lines, matching what
+        /// File.WriteAllLines wrote here before.
+        /// </summary>
+        private static void WriteLines(FileStream stream, string[] lines)
+        {
+            stream.Position = 0;
+
+            var writer = new StreamWriter(stream, new UTF8Encoding(false));
+            for (int i = 0; i < lines.Length; i++) writer.WriteLine(lines[i]);
+            writer.Flush();
+
+            stream.SetLength(stream.Position);
+            stream.Flush();
         }
 
         /// <summary>
