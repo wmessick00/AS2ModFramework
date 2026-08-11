@@ -228,6 +228,89 @@ namespace AS2.ModApi.Tests
             List<Target> bogus = TargetResolver.Enumerate(everywhere);
             True("Enumerate refuses an absolute file name", bogus != null && bogus.Count == 0);
             True("Enumerate says why it refused", ModApiPlugin.Log.Mentions("Refusing"));
+
+            DeviceNamesAreRefused();
+        }
+
+        // ---- Regression: issue #15 -------------------------------------------------------------
+
+        /// <summary>
+        /// Win32 keeps the DOS device names whatever extension follows them, so "nul.json" is the
+        /// NUL device rather than a file. Writing a mod's data there throws nothing and leaves
+        /// nothing: the guard is the only thing between a Workshop folder called "nul" and data
+        /// that disappears every session.
+        /// </summary>
+        private static void DeviceNamesAreRefused()
+        {
+            DeviceWritesReallyDisappear();
+
+            foreach (string device in new[] { "nul", "NUL", "nul.json", "nul.", "nul .txt", "con", "CON.txt",
+                                              "aux", "prn.dat", "com1", "COM9.log", "lpt1", "conin$", "conout$.json" })
+            {
+                ModApiPlugin.Log.Clear();
+                False("HasFile refuses the device name '" + device + "'", TargetResolver.HasFile("skins/Plain", device));
+                True("HasFile says why it refused '" + device + "'", ModApiPlugin.Log.Mentions("device name"));
+            }
+
+            // Only the whole name in front of the first dot is a device. A guard that refused these
+            // would be a new bug rather than a fix.
+            foreach (string ordinary in new[] { "console.json", "nullable.json", "com.json", "com10.json",
+                                                "lpt.json", "auxiliary.json", "skin-nul.json" })
+            {
+                ModApiPlugin.Log.Clear();
+                TargetResolver.HasFile("skins/Plain", ordinary);
+                False("HasFile accepts the ordinary name '" + ordinary + "'",
+                      ModApiPlugin.Log.Mentions("plain file name"));
+            }
+
+            ModApiPlugin.Log.Clear();
+            List<Target> devices = TargetResolver.Enumerate("nul.json");
+            True("Enumerate refuses a device name", devices != null && devices.Count == 0);
+            True("Enumerate says why it refused a device name", ModApiPlugin.Log.Mentions("device name"));
+        }
+
+        /// <summary>
+        /// The hazard itself, probed rather than assumed, because how far it reaches depends on the
+        /// machine.
+        ///
+        /// Win32 has always mapped a device name to the device whatever extension follows it, and
+        /// Microsoft still documents "NUL.txt" that way. Windows 11 build 26200 does not: there,
+        /// "nul.json" and "con.txt" are ordinary files -- checked through both cmd.exe and
+        /// File.WriteAllText -- while a bare "nul" still swallows the write. A player on Windows 10
+        /// therefore loses the data that a player on 26200 keeps.
+        ///
+        /// That split is the argument for the guard rather than a reason to doubt it: a file name is
+        /// not something a mod can test on its author's machine and rely on. So this reports which
+        /// machine it ran on and never fails. A skip means this build kept the file; the rejections
+        /// below hold either way, because the guard refuses the name and does not ask the OS.
+        /// </summary>
+        private static void DeviceWritesReallyDisappear()
+        {
+            foreach (string name in new[] { "nul.json", "nul" })
+            {
+                string sink = Path.Combine(Abs("skins/Plain"), name);
+
+                try
+                {
+                    File.WriteAllText(sink, "data a mod would expect to read back next launch");
+                }
+                catch (Exception e)
+                {
+                    Pass("'" + name + "' is no ordinary file name here: the write threw " + e.GetType().Name);
+                    return;
+                }
+
+                if (!File.Exists(sink))
+                {
+                    Pass("a write to '" + name + "' really does vanish, which is what the guard is for");
+                    return;
+                }
+
+                try { File.Delete(sink); } catch { }
+            }
+
+            Skip("The device-name hazard did not reproduce: this machine wrote real files for both "
+               + "'nul.json' and 'nul'. Windows 10 loses both, so the guard still has to refuse them.");
         }
 
         // ---- Enumerate ------------------------------------------------------------------------

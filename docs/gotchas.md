@@ -147,6 +147,34 @@ The consequences are the trade-off, not oversights:
 The cold checks cover it: they build a real junction with `mklink /J`, assert it resolves, and only
 then assert every entry point refuses it. Issue #13.
 
+### A file name that Windows reserves for a device is refused
+
+Anything that turns a caller-supplied name into a path goes through `PathGuard.IsPlainFileName`,
+which rejects separators, drive and stream qualifiers, the dot names, and — the part nobody expects —
+`CON`, `PRN`, `AUX`, `NUL`, `CONIN$`, `CONOUT$`, `COM0`–`COM9` and `LPT0`–`LPT9`. The device
+comparison uses the part of the name in front of the first dot,
+with the spaces around it removed, so `nul.json`, `NUL`, `nul.` and `nul .txt` are all refused;
+`console.json`, `com.json` and `com10.json` are ordinary names and pass.
+
+Win32 opens the device instead of a file for these, and the failure is silent in both directions:
+`File.WriteAllText` on `BepInEx\data\nul.json` reports success, writes nothing and leaves no file, so
+the mod reads back nothing next launch with no exception anywhere to explain it. The name is not
+always the mod author's own — `AS2Paths.DataFile` warns against naming a per-skin file after its
+storage key, and a storage key is built from a Steam Workshop folder name.
+
+**How much of the rule applies depends on the Windows build.** That is why the guard refuses by name
+rather than attempting the write and looking at the result:
+
+| Behaviour of | `<dir>\nul` | `<dir>\nul.json` |
+| --- | --- | --- |
+| What Microsoft documents, and Windows 10 | device | device |
+| Windows 11 build 26200 | device | ordinary file |
+
+The 26200 row was checked through `cmd.exe` and `File.WriteAllText` together, so it is Windows and
+not one runtime. .NET Framework refuses a bare `nul` itself with `NotSupportedException`; Mono 2017,
+which is what the game runs, promises nothing of the kind. The same file name therefore keeps one
+player's settings and loses another's. Issue #15.
+
 ## Tooling
 
 ### Prefer to have a person start the game

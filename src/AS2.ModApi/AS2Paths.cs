@@ -46,9 +46,10 @@ namespace AS2.ModApi
         /// The name must be a plain file name. Throwing on anything else is deliberate: the
         /// tempting way to name a per-skin file is after its storage key, and a key is built from
         /// a Steam Workshop folder name its author chose. Path.Combine would return a rooted name
-        /// whole and drop the data folder entirely, so this is checked here rather than trusted --
-        /// see <see cref="PathGuard"/>. Key data by putting the key *inside* one file, not by
-        /// spelling it into the file's name.
+        /// whole and drop the data folder entirely, and a name such as "nul.json" is a Windows
+        /// device that swallows the write -- so this is checked here rather than trusted, see
+        /// <see cref="PathGuard"/>. Key data by putting the key *inside* one file, not by spelling
+        /// it into the file's name.
         /// </summary>
         public static string DataFile(string fileName)
         {
@@ -56,7 +57,8 @@ namespace AS2.ModApi
 
             if (!PathGuard.IsPlainFileName(fileName))
                 throw new ArgumentException(
-                    "A data file needs a plain file name, not a path: '" + fileName + "'.", "fileName");
+                    "A data file needs a plain file name -- not a path, and not a Windows device "
+                    + "name such as NUL: '" + fileName + "'.", "fileName");
 
             return Path.Combine(DataDir, fileName);
         }
