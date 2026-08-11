@@ -112,6 +112,14 @@ The bootstrap re-asserts this key every launch, rewriting only that line. A patc
 costs one broken launch rather than a manual repair. It handles both the Doorstop 3 spelling
 (`targetAssembly`) and the Doorstop 4 spelling (`target_assembly`).
 
+The read and the write share **one handle, opened with `FileShare.None`**, because this file has a
+second writer and the section above names it: the settings mod puts itself back three times a
+session, and a patch update replaces the file outright. Read, close, then write back, and the other
+writer's change is gone — or the two land together and the file that decides whether any mod loads is
+neither version. A sharing violation costs three attempts 50 ms apart instead, then one line in
+`bootstrap.log` and no repair until the next launch. The content is also written before the file is
+truncated, so no power cut can leave `doorstop_config.ini` empty. Issue #17.
+
 This repair runs **only** when no `--doorstop-target` was passed on the command line. Doorstop
 prefers the command line over the ini, so on the launch-option install the ini's value cannot affect
 anything — rewriting it would edit a file the community patch owns to no effect whatsoever.
