@@ -104,6 +104,20 @@ using `GUILayout` at all. `OverlayUI` in AS2-SkinSettings takes the second route
 explicit rects, which it needs anyway to line its columns up with the game's, and which removes the
 need to queue anything.
 
+### Mods register Mod Menu entries from whatever thread they like
+
+`AS2ModMenu.Register` is public API, and a plugin may call it from the callback of a web request or a
+file read. `OnGUI` walks the entries every frame, and more than once per frame, so a `List` that
+another thread adds to mid-draw throws `InvalidOperationException: Collection was modified`.
+`ModApiPlugin.OnGUI` catches that and closes the menu — so one mod's registration timing would shut
+the shared hub on every other mod for that frame.
+
+`Register` and `Unregister` therefore change the list while holding a lock and publish an immutable
+array; the drawing code reads that array and takes no lock at all. Read `Published` **once** at the
+top of any drawing code you add. IMGUI replays one structure for the input and Repaint events of the
+same frame, so a header count from one snapshot and rows from another is the `Mismatched LayoutGroup`
+bug above wearing a different hat. Issue #16.
+
 ### The input lock counter belongs to a UIManager instance
 
 See [game-internals.md](game-internals.md#input). Release the same manager you locked, or you
