@@ -303,7 +303,8 @@ namespace AS2.ModApi
         {
             if (!PathGuard.IsPlainFileName(fileName))
             {
-                ModApiPlugin.Log.LogWarning("Refusing the file name '" + fileName + "': it must be a plain file name, not a path.");
+                ModApiPlugin.Log.LogWarning("Refusing the file name '" + fileName + "': it must be a plain file name, "
+                                          + "not a path and not a Windows device name.");
                 return false;
             }
 
@@ -327,7 +328,8 @@ namespace AS2.ModApi
 
             if (!PathGuard.IsPlainFileName(fileName))
             {
-                ModApiPlugin.Log.LogWarning("Refusing to enumerate targets for '" + fileName + "': it must be a plain file name, not a path.");
+                ModApiPlugin.Log.LogWarning("Refusing to enumerate targets for '" + fileName + "': it must be a plain "
+                                          + "file name, not a path and not a Windows device name.");
                 return found;
             }
 
