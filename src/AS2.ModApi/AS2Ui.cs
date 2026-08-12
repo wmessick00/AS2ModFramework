@@ -146,7 +146,7 @@ namespace AS2.ModApi
         /// Whether the game's settings dialog is on screen.
         ///
         /// Read from the game's own `Settings.dialogOpen` static, so it is correct even if a mod
-        /// loads while the dialog is already up. <see cref="AS2Events.SettingsDialogOpened"/> is the
+        /// loads while the dialog is already up. <see cref="AS2Events.SettingsDialogToggled"/> is the
         /// event form.
         /// </summary>
         public static bool SettingsDialogOpen
