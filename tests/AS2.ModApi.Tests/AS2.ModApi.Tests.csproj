@@ -41,6 +41,9 @@
     <Compile Include="..\..\src\AS2.ModApi\PathGuard.cs"      Link="Production\PathGuard.cs" />
     <Compile Include="..\..\src\AS2.ModApi\Str.cs"            Link="Production\Str.cs" />
     <Compile Include="..\..\src\AS2.ModApi\SelectorKind.cs"   Link="Production\SelectorKind.cs" />
+
+    <!-- The assertions and the pass/fail summary, shared with tests\AS2.Bootstrap.Tests. -->
+    <Compile Include="..\Check.cs" Link="Check.cs" />
   </ItemGroup>
 
 </Project>
