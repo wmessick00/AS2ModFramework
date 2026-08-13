@@ -223,6 +223,17 @@ namespace AS2.ModApi
         private static Font _menuFont;
         private static Texture2D _white;
 
+        /// <summary>
+        /// The style for a hit area that draws nothing: a control whose look is already drawn by
+        /// hand, and which needs GUI.Button only for the click.
+        ///
+        /// Built once and shared, because OnGUI runs several times per frame -- once per IMGUI
+        /// event. A `new GUIStyle()` in the call itself is therefore not one allocation per control
+        /// drawn but one per control per event, and this file is otherwise careful to leave no
+        /// per-frame garbage. It carries no state, so sharing it between callers is safe.
+        /// </summary>
+        private static readonly GUIStyle Invisible = new GUIStyle();
+
         public static GUIStyle Label { get; private set; }
         public static GUIStyle LabelRight { get; private set; }
         public static GUIStyle LabelCentre { get; private set; }
@@ -495,7 +506,7 @@ namespace AS2.ModApi
                     GUI.matrix = matrix;
                 }
 
-                if (GUI.Button(boxRect, GUIContent.none, new GUIStyle())) value = !value;
+                if (GUI.Button(boxRect, GUIContent.none, Invisible)) value = !value;
                 return value;
             }
             catch (Exception ex)
@@ -543,7 +554,6 @@ namespace AS2.ModApi
         }
 
         private static GUIStyle _buttonStyle;
-        private static readonly GUIStyle Invisible = new GUIStyle();
 
         /// <summary>
         /// How much of a button's height its label may occupy. The game's 60-unit button carries the
