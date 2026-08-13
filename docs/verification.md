@@ -5,8 +5,8 @@ prefer to have someone start the game through Steam rather than launching the ex
 which can trigger a license popup. So each verification round costs one manual launch: batch
 everything you want to learn into a single run.
 
-The exception is the path and key logic, which needs none of that and has
-[committed tests](#cold-checks-that-need-no-launch). Run those first; they are free.
+The exceptions are the path and key logic and the doorstop config rewrite. Neither needs any of that,
+and both have [committed tests](#cold-checks-that-need-no-launch). Run those first; they are free.
 
 ## The loop
 
@@ -119,33 +119,40 @@ ran but read the wrong key — suspect key resolution, not the Lua side.
 
 Some things can be checked cold; prefer this when you can, to save a launch.
 
-**The path and key logic has real tests.** `TargetResolver` and `PathGuard` are what turn the game's
-relative paths into storage keys and, just as importantly, what refuse a key that would resolve
-outside the install. None of that needs Unity, BepInEx or the game:
+**Two things here have real tests**, and both run on a machine with no Audiosurf 2 on it:
 
 ```bash
-dotnet run --project tests/AS2.ModApi.Tests
+dotnet run --project tests/AS2.ModApi.Tests       # path and key logic
+dotnet run --project tests/AS2.Bootstrap.Tests    # doorstop_config.ini rewrite
 ```
 
-Exit code 0 means every check passed; failures are listed and the exit code is 1. It needs no game
-installed, which makes it the only thing here that runs on a machine without Audiosurf 2.
+Exit code 0 means every check passed; failures are listed and the exit code is 1. Both projects
+compile the **real source files** rather than referencing the built DLL, so the tests cannot drift
+from what ships — see the comment at the top of each `.csproj` for why. Both run on every push and
+pull request; see [`.github/workflows/cold-checks.yml`](../.github/workflows/cold-checks.yml).
 
-The project compiles the **real source files** rather than referencing the built DLL, so the tests
-cannot drift from what ships — see the comment in
-[`tests/AS2.ModApi.Tests/AS2.ModApi.Tests.csproj`](../tests/AS2.ModApi.Tests/AS2.ModApi.Tests.csproj)
-for why, and `Shims.cs` for the two external statics it fakes. Adding a `using BepInEx` or
-`UnityEngine` to a file on that project's `Compile` list will break the test build; that is the
-constraint working, not a problem to route around.
+`TargetResolver` and `PathGuard` are what turn the game's relative paths into storage keys and, just
+as importantly, what refuse a key that would resolve outside the install. Run those checks after
+touching anything in `TargetResolver`, `PathGuard`, `Normalize` or `FolderForKey`. The traversal,
+rooted-path and junction rejections in particular are the sort of guard a refactor deletes without
+meaning to, and before these tests existed nothing would have caught that short of a manual launch
+and a careful read of the log. See `Shims.cs` for the two external statics that project fakes; adding
+a `using BepInEx` or `UnityEngine` to a file on its `Compile` list will break the test build, which
+is the constraint working rather than a problem to route around.
 
-Run it after touching anything in `TargetResolver`, `PathGuard`, `Normalize` or `FolderForKey`. The
-traversal, rooted-path and junction rejections in particular are the sort of guard a refactor deletes
-without meaning to, and before these tests existed nothing would have caught that short of a manual
-launch and a careful read of the log.
+`Bootstrap.Retarget`, `ReadLines`, `WriteLines` and `EnsureDoorstopTarget` rewrite one key of a file
+the community patch owns, and must leave every other byte of it alone. Those checks drive the real
+methods against real files in the temp folder: the key in both doorstop spellings, comments and
+sections and blank lines that have to survive, the byte order mark, the truncation that stops a
+fragment of the old target being left behind, and a file held open by another process. Run them after
+any change to that code. A mistake there does not throw — it silently disables modding, or leaves the
+community patch unable to start.
 
-One check reports `SKIP` rather than `PASS` or `FAIL`: the junction cases need the machine to create
-a real NTFS junction, and a run that could not is neither a pass nor a failure. Skips are repeated in
-the summary so they cannot pass for coverage. CI is Windows, where `mklink /J` needs no elevation, so
-a skip there means something is wrong with the runner.
+Some checks report `SKIP` rather than `PASS` or `FAIL`. The junction cases need the machine to create
+a real NTFS junction, and a run that could not is neither a pass nor a failure; the same goes for a
+test process launched with a doorstop flag of its own. Skips are repeated in the summary so they
+cannot pass for coverage. CI is Windows, where `mklink /J` needs no elevation, so a skip there means
+something is wrong with the runner.
 
 **Assembly shape** (entry points, references, CLR version) via reflection-only load:
 
@@ -160,9 +167,10 @@ This is how `Bootstrap.Main()` was confirmed to be a parameterless static that D
 descriptor will actually resolve — a mistake that would otherwise fail silently at launch.
 
 **Other pure filesystem or string logic** can be prototyped against the real game folder before
-committing to a launch. If the thing you are prototyping lives in `AS2.ModApi` and does not touch
-Unity or BepInEx, prefer adding a case to the test project over a throwaway script — that is exactly
-how the key-canonicalisation algorithm ended up validated once, ad hoc, and then unprotected.
+committing to a launch. If the thing you are prototyping lives in `AS2.ModApi` or `AS2.Bootstrap` and
+does not touch Unity or BepInEx, prefer adding a case to the matching test project over a throwaway
+script — that is exactly how the key-canonicalisation algorithm ended up validated once, ad hoc, and
+then unprotected.
 
 ## Diagnosing a mod that will not load
 

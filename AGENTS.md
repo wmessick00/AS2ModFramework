@@ -14,6 +14,7 @@ arrangement with a real plugin loader.
 | `src/AS2.ModApi` | BepInEx plugin | Harmony patches that turn the game's internals into events |
 | `src/AS2.Probe` | dev only, not shipped | Dumps live member signatures off the running game |
 | `tests/AS2.ModApi.Tests` | `dotnet run`, no game needed | Cold checks for the path and key logic, compiled from the real sources |
+| `tests/AS2.Bootstrap.Tests` | `dotnet run`, no game needed | Cold checks for the `doorstop_config.ini` rewrite, compiled from the real sources |
 
 The consumer of `AS2.ModApi` lives in a **separate repo**, `AS2-SkinSettings`, checked out beside
 this one at `..\AS2-SkinSettings`. Changing an `AS2Events` signature means updating that repo too.
@@ -33,17 +34,26 @@ anything:
 - **Batch verification.** A launch is a manual step, so a round costs real attention. Decide
   everything you want to learn *before* asking, and add whatever logging covers all of it at once.
 
-**The path and key logic is the exception, and it has tests.** Run them before asking for a launch:
+**The path logic and the doorstop config rewrite are the exception, and both have tests.** Run them
+before asking for a launch:
 
 ```bash
-dotnet run --project tests/AS2.ModApi.Tests    # exit 0 = passed
+dotnet run --project tests/AS2.ModApi.Tests       # path and key logic
+dotnet run --project tests/AS2.Bootstrap.Tests    # doorstop_config.ini rewrite
 ```
 
-They compile the real `TargetResolver.cs`, `PathGuard.cs`, `Str.cs` and `SelectorKind.cs` rather than
-referencing the built DLL, so they cannot drift from what ships, and they need no game installed.
-That is why `Str` and `SelectorKind` sit in their own files: every file on that project's `Compile`
-list has to stay free of BepInEx and Unity. Adding an event or a hook does not belong there; changing
-how a key is built or validated does.
+Exit code 0 means every check passed. Both projects compile the real source files rather than
+referencing the built DLL, so they cannot drift from what ships, and neither needs a game installed.
+
+The first compiles `TargetResolver.cs`, `PathGuard.cs`, `Str.cs` and `SelectorKind.cs`. That is why
+`Str` and `SelectorKind` sit in their own files: every file on that project's `Compile` list has to
+stay free of BepInEx and Unity. Adding an event or a hook does not belong there; changing how a key
+is built or validated does.
+
+The second compiles `Bootstrap.cs` and `BootLog.cs` whole, and needs no shim: `AS2.Bootstrap`
+references mscorlib and System and nothing else. Run it after any change to `Retarget`, `ReadLines`,
+`WriteLines` or `EnsureDoorstopTarget` — that file decides whether any mod loads, and it belongs to
+the community patch.
 
 Prefer cold checks generally — reflection-only assembly loads, prototyping path logic against the
 real folders — for anything that does not truly need the game running. See
