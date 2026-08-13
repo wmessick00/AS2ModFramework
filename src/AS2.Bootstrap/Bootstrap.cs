@@ -242,8 +242,13 @@ namespace AS2.Bootstrap
         /// whatever the other process wrote in between is gone -- or worse, two writers land
         /// together and the file that decides whether any mod loads is neither version. An exclusive
         /// handle turns that into a sharing violation, which is a short retry rather than a loss.
+        ///
+        /// This and the three helpers under it are internal rather than private so that
+        /// tests/AS2.Bootstrap.Tests can compile this file and drive them directly. None of this
+        /// touches Unity or BepInEx, so it is testable cold; before those tests existed the only way
+        /// to exercise it was to launch the game and read bootstrap.log.
         /// </summary>
-        private static void EnsureDoorstopTarget(string root)
+        internal static void EnsureDoorstopTarget(string root)
         {
             if (TargetedOnCommandLine())
             {
@@ -304,7 +309,7 @@ namespace AS2.Bootstrap
         /// the file doorstop launched this game from, and writing a new key into a file the community
         /// patch owns would guess at a format nobody asked us to produce.
         /// </summary>
-        private static string Retarget(string[] lines)
+        internal static string Retarget(string[] lines)
         {
             for (int i = 0; i < lines.Length; i++)
             {
@@ -337,7 +342,7 @@ namespace AS2.Bootstrap
         /// using block owns the stream. UTF-8 with byte order mark detection, which is what
         /// File.ReadAllLines did here before.
         /// </summary>
-        private static string[] ReadLines(FileStream stream)
+        internal static string[] ReadLines(FileStream stream)
         {
             var lines = new List<string>();
             var reader = new StreamReader(stream, Encoding.UTF8, true);
@@ -360,7 +365,7 @@ namespace AS2.Bootstrap
         /// UTF-8 with no byte order mark, and Environment.NewLine between lines, matching what
         /// File.WriteAllLines wrote here before.
         /// </summary>
-        private static void WriteLines(FileStream stream, string[] lines)
+        internal static void WriteLines(FileStream stream, string[] lines)
         {
             stream.Position = 0;
 
@@ -383,28 +388,40 @@ namespace AS2.Bootstrap
         /// Reading the process command line goes through the CLR only and never touches Unity, so it
         /// is safe at doorstop time.
         /// </summary>
-        private static bool TargetedOnCommandLine()
+        internal static bool TargetedOnCommandLine()
         {
             try
             {
-                string[] args = Environment.GetCommandLineArgs();
-                if (args == null) return false;
-
-                for (int i = 0; i < args.Length; i++)
-                {
-                    if (IsBlank(args[i])) continue;
-
-                    string flag = args[i].TrimStart('-', '/');
-                    if (flag.StartsWith("doorstop-target", StringComparison.OrdinalIgnoreCase)
-                     || flag.StartsWith("doorstop_target", StringComparison.OrdinalIgnoreCase))
-                        return true;
-                }
+                return TargetedOnCommandLine(Environment.GetCommandLineArgs());
             }
             catch (Exception e)
             {
                 // Unreadable command line: fall through to the ini repair rather than leave a
                 // launch-option install unable to repair itself.
                 BootLog.Warn("Could not read the command line (" + e.Message + "); assuming the ini install.");
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// The scan itself, over an argument list the caller supplies.
+        ///
+        /// Split from the method above so a test can hand it a launch's worth of arguments. The
+        /// process command line is not something a test can set, and this decides whether the ini is
+        /// written at all, so it is the one branch of the repair that would otherwise stay unproven.
+        /// </summary>
+        internal static bool TargetedOnCommandLine(string[] args)
+        {
+            if (args == null) return false;
+
+            for (int i = 0; i < args.Length; i++)
+            {
+                if (IsBlank(args[i])) continue;
+
+                string flag = args[i].TrimStart('-', '/');
+                if (flag.StartsWith("doorstop-target", StringComparison.OrdinalIgnoreCase)
+                 || flag.StartsWith("doorstop_target", StringComparison.OrdinalIgnoreCase))
+                    return true;
             }
 
             return false;
