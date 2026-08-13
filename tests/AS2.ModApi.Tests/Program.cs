@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using BepInEx;
+using static AS2.Tests.Check;
 
 namespace AS2.ModApi.Tests
 {
@@ -20,9 +21,6 @@ namespace AS2.ModApi.Tests
     /// </summary>
     internal static class Program
     {
-        private static int _passed;
-        private static readonly List<string> Failures = new List<string>();
-        private static readonly List<string> Skipped = new List<string>();
         private static readonly List<string> Junctions = new List<string>();
         private static string _root;
         private static string _outside;
@@ -50,25 +48,14 @@ namespace AS2.ModApi.Tests
             }
             catch (Exception e)
             {
-                Failures.Add("A test threw, which is itself a failure: " + e);
+                Fail("A test threw, which is itself a failure: " + e);
             }
             finally
             {
                 Cleanup();
             }
 
-            Console.WriteLine();
-            foreach (string s in Skipped) Console.WriteLine("SKIPPED: " + s);
-
-            if (Failures.Count == 0)
-            {
-                Console.WriteLine("All " + _passed + " checks passed.");
-                return 0;
-            }
-
-            Console.WriteLine(Failures.Count + " FAILED (" + _passed + " passed):");
-            foreach (string f in Failures) Console.WriteLine("  - " + f);
-            return 1;
+            return Report();
         }
 
         /// <summary>
@@ -459,54 +446,6 @@ namespace AS2.ModApi.Tests
                 return true;
             }
             catch { return false; }
-        }
-
-        // ---- Assertions -------------------------------------------------------------------------
-
-        private static void Same(string what, string actual, string expected)
-        {
-            // Ordinal: the whole point of several of these is which casing came back.
-            if (string.Equals(actual, expected, StringComparison.Ordinal)) Pass(what);
-            else Fail(what + " -- expected '" + (expected ?? "<null>") + "', got '" + (actual ?? "<null>") + "'");
-        }
-
-        private static void Null(string what, string actual)
-        {
-            if (actual == null) Pass(what);
-            else Fail(what + " -- expected null, got '" + actual + "'");
-        }
-
-        private static void True(string what, bool actual)
-        {
-            if (actual) Pass(what); else Fail(what + " -- expected true");
-        }
-
-        private static void False(string what, bool actual)
-        {
-            if (!actual) Pass(what); else Fail(what + " -- expected false");
-        }
-
-        private static void Pass(string what)
-        {
-            _passed++;
-            Console.WriteLine("  PASS  " + what);
-        }
-
-        private static void Fail(string what)
-        {
-            Failures.Add(what);
-            Console.WriteLine("  FAIL  " + what);
-        }
-
-        /// <summary>
-        /// A check the machine could not set up. Not a failure -- there is nothing wrong with the
-        /// code -- but it is printed again in the summary, because a guard nobody exercised looks
-        /// exactly like a guard that works.
-        /// </summary>
-        private static void Skip(string why)
-        {
-            Skipped.Add(why);
-            Console.WriteLine("  SKIP  " + why);
         }
     }
 }

@@ -1,24 +1,26 @@
-# Runs the cold checks in tests/AS2.ModApi.Tests on every push and pull request.
+# Runs the cold checks in tests/ on every push and pull request.
 #
-# Only the tests. The rest of this repo cannot be built here and is not meant to be:
-# AS2.Bootstrap and AS2.ModApi compile against the game's own Assembly-CSharp, LuaInterface and
-# UnityEngine assemblies, which are not redistributable and so cannot be checked in or placed on a
-# runner. Releases are built on a machine that owns Audiosurf 2 and uploaded by hand; see
-# tools/pack.ps1. The test project was built to have no such dependency, which is the whole reason
-# there is anything here to run at all.
+# Only the tests. The rest of this repo cannot be built here and is not meant to be: every project
+# under src/ resolves its references out of the game's own Audiosurf2_Data\Managed folder, and
+# AS2.ModApi binds to Assembly-CSharp, LuaInterface and UnityEngine besides. None of that is
+# redistributable, so it cannot be checked in or placed on a runner. Releases are built on a machine
+# that owns Audiosurf 2 and uploaded by hand; see tools/pack.ps1. The test projects were built to
+# have no such dependency -- they link the same source files against the desktop framework -- which
+# is the whole reason there is anything here to run at all.
 #
 # The runner is Windows, and both reasons matter:
 #
-#   1. The test project targets net48, which is .NET Framework and does not exist on Linux.
+#   1. The test projects target net48, which is .NET Framework and does not exist on Linux.
 #   2. More importantly, these tests encode *Windows* path semantics, because the game is
 #      Windows-only. Path.GetInvalidFileNameChars() returns two characters on Linux and about forty
 #      on Windows, so "wild*card.json" is a legal file name there and PathGuard would accept it --
 #      failing a test that is asserting correct behaviour. The traversal cases lean on Windows drive
-#      parsing for the same reason. Moving this to ubuntu-latest to save runner minutes would not
-#      make the suite cheaper, it would make it wrong.
+#      parsing for the same reason, and the doorstop config checks assert CRLF line ends. Moving this
+#      to ubuntu-latest to save runner minutes would not make the suite cheaper, it would make it
+#      wrong.
 #
-# The command is deliberately the exact one in AGENTS.md and docs/verification.md, so that a failure
-# here reproduces locally by copying one line.
+# The commands are deliberately the exact ones in AGENTS.md and docs/verification.md, so that a
+# failure here reproduces locally by copying one line.
 
 name: Cold checks
 
@@ -30,7 +32,7 @@ on:
 
 jobs:
   cold-checks:
-    name: TargetResolver and PathGuard
+    name: AS2.ModApi and AS2.Bootstrap
     runs-on: windows-latest
 
     steps:
@@ -46,5 +48,12 @@ jobs:
       # TargetResolver.cs, PathGuard.cs, Str.cs and SelectorKind.cs rather than referencing the
       # shipped DLL, so a change that reaches for BepInEx or Unity from one of those files breaks
       # this step. That is the constraint working, not a problem to route around.
-      - name: Run the cold checks
+      - name: Path and key logic
         run: dotnet run --project tests/AS2.ModApi.Tests
+
+      # The doorstop_config.ini rewrite, likewise built from the real Bootstrap.cs. It runs even when
+      # the step above failed, because the two cover different assemblies and one report of both
+      # beats two pushes to learn the same thing.
+      - name: Doorstop config rewrite
+        if: '!cancelled()'
+        run: dotnet run --project tests/AS2.Bootstrap.Tests

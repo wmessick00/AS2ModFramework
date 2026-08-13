@@ -81,7 +81,14 @@ Expected output, benign noise to ignore, and the end-to-end settings check are a
 
 ## Prefer cold checks where possible
 
-Save launches. Assembly shape can be confirmed without running the game:
+Save launches. Two suites run with no game installed, and both should pass before you ask for one:
+
+```bash
+dotnet run --project tests/AS2.ModApi.Tests       # path and key logic
+dotnet run --project tests/AS2.Bootstrap.Tests    # doorstop_config.ini rewrite
+```
+
+Assembly shape can be confirmed without running the game:
 
 ```powershell
 $a = [System.Reflection.Assembly]::ReflectionOnlyLoadFrom("C:\...\AS2.Bootstrap.dll")
