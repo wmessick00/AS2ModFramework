@@ -145,7 +145,7 @@ Also available:
 | `AS2Events.ActiveSelector` / `ActiveKey` | Current selector state without tracking it yourself |
 | `TargetResolver` | Turning the game's relative paths into stable storage keys, including Workshop items and mode-dedicated skin folders |
 | `AS2Input.Lock()` | Holding the game's input lock without stealing it from another mod |
-| `AS2Ui` / `AS2ModMenu` | Drawing UI that matches the game's settings dialog, and registering an entry in the shared Mod Menu |
+| `AS2Ui` / `AS2ModMenu` | Drawing UI that matches the game's settings dialog — panel chrome, settings rows and the game's own scrollbar — and registering an entry in the shared Mod Menu |
 | `AS2Paths` | Where to keep content data, as opposed to BepInEx plugin config |
 
 [docs/game-internals.md](docs/game-internals.md) documents the hookable surface these are built on.

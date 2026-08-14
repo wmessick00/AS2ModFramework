@@ -194,10 +194,40 @@ dialog because EZGUI centres it:
 | Value column | x 1206 | `AS2Ui.ValueColumnX` |
 | Row pitch | 83 | `AS2Ui.RowPitch` |
 | Free space for a mod's button | 320 x 60, centred 666 left of the dialog's centre, 60 above its bottom edge | `AS2Ui.EntryButtonRect` |
+| Side margin | 70 | `AS2Ui.SideMargin` / `AS2Ui.ContentRect` |
+| Title block | title 56 tall at y 44, dim subtitle 36 under it, 34 clear below | `AS2Ui.Header` / `AS2Ui.HeaderHeight` |
+| Button row | 60 tall, its top 100 above the dialog's bottom edge | `AS2Ui.FooterButtonRect` / `AS2Ui.FooterHeight` |
+| Scrollbar gutter and thumb | 44 wide, 28 square | `AS2Ui.ScrollGutter` / `AS2Ui.ScrollThumb` |
 
 Use `AS2Ui.RowRects(row, out label, out control, out value)` rather than these numbers directly. They
 were prose here before they were code, and every mod that wanted a vanilla-looking row copied them
 out of this table into its own drifting set of constants.
+
+The same applies to the panel around the rows. `AS2Ui.Header`, `AS2Ui.BodyRect`,
+`AS2Ui.FooterButtonRect` and `AS2Ui.BeginScroll` / `AS2Ui.EndScroll` draw and measure the chrome, so
+a panel is laid out without a single measurement of its own:
+
+```csharp
+Rect dialog = AS2Ui.DialogRect;
+AS2Ui.Fill(AS2Ui.FullScreen, AS2Ui.Backdrop);
+AS2Ui.Panel(dialog);
+
+float header = AS2Ui.Header(dialog, "My Mod", "3 things to configure");
+Rect body = AS2Ui.BodyRect(dialog, header, AS2Ui.FooterHeight);
+
+Rect rows = AS2Ui.BeginScroll(body, ref _scroll, AS2Ui.RowsHeight(count));
+for (int i = 0; i < count; i++)
+    values[i] = AS2Ui.SliderRow(AS2Ui.Row(rows, i), names[i], values[i], 0f, 100f, values[i] + "%");
+AS2Ui.EndScroll(ref _scroll);
+
+if (AS2Ui.Button(AS2Ui.FooterButtonRect(dialog, 200f, true), "Close")) Close();
+```
+
+**Unity's scrollbars cannot be used here.** They are the default IMGUI skin's and belong to no game
+in particular, and the horizontal one used to appear uninvited at small window sizes. `BeginScroll`
+turns both off, sizes the view so the horizontal range is exactly zero, and `EndScroll` draws the
+game's own bar instead: a pale square thumb, the same size however long the list is, on a track one
+shade lighter than the panel. `AS2ModMenu` is the worked example.
 
 A boolean gets a **checkbox, not a two-stop slider** — that is what the game does for Autofind Music,
 Vsync and the scoreboard toggles, and a slider that only moves between two positions reads as broken.
@@ -218,7 +248,8 @@ change it while a mod is drawing over it.
 Its slider is white up to the handle and blue past it, which is why the game's sliders show no blue
 at maximum. An enumerated setting (Graphics Level, Anti-Aliasing, Resolution) is drawn as a slider
 with the value as text rather than as a list — worth copying, because it keeps every setting one row
-tall.
+tall. `AS2Ui.SliderRow` draws a number that way and `AS2Ui.ChoiceRow` an enumerated one; a list of
+buttons instead is what turned seven settings into something taller than the screen.
 
 ## Input
 
