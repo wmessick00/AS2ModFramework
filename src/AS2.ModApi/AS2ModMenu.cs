@@ -159,28 +159,28 @@ namespace AS2.ModApi
             Rect dialog = AS2Ui.DialogRect;
             float u = AS2Ui.Unit;
 
-            AS2Ui.Fill(new Rect(0f, 0f, Screen.width, Screen.height), AS2Ui.Backdrop);
+            AS2Ui.Fill(AS2Ui.FullScreen, AS2Ui.Backdrop);
             AS2Ui.Panel(dialog);
 
-            GUI.Label(new Rect(dialog.x + 70f * u, dialog.y + 44f * u, dialog.width - 140f * u, 56f * u),
-                      "Mod Menu", AS2Ui.Title);
-            GUI.Label(new Rect(dialog.x + 70f * u, dialog.y + 102f * u, dialog.width - 140f * u, 36f * u),
-                      entries.Length + " installed mod" + (entries.Length == 1 ? "" : "s"), AS2Ui.Dim);
+            // Every rect below comes from AS2Ui rather than from numbers of its own. The hub is the
+            // framework's own panel, so it is also the working example a mod is entitled to copy:
+            // anything it had to measure for itself would be a number the next mod has to measure
+            // again, which is the whole reason these live in AS2Ui.
+            float headerH = AS2Ui.Header(dialog, "Mod Menu",
+                                         entries.Length + " installed mod" + (entries.Length == 1 ? "" : "s"));
 
-            float top = dialog.y + 170f * u;
-            float bottom = dialog.yMax - 120f * u;
-            var body = new Rect(dialog.x + 70f * u, top, dialog.width - 140f * u, bottom - top);
+            Rect body = AS2Ui.BodyRect(dialog, headerH, AS2Ui.FooterHeight);
 
             // Sized from what the two faces actually measure rather than from fixed offsets, so the
             // description cannot land on top of the title when the fonts do not scale exactly with
             // the row -- which is what a font size rounded to whole pixels guarantees at some point.
+            // Not RowPitch: an entry is a two-line card, not a settings row.
             float titleH = AS2Ui.Label.lineHeight;
             float descH = AS2Ui.Dim.lineHeight;
             float gap = 6f * u;
 
             float rowH = Mathf.Max(108f * u, titleH + gap + descH + 40f * u);
-            var content = new Rect(0f, 0f, body.width - 24f * u, entries.Length * rowH);
-            _scroll = GUI.BeginScrollView(body, _scroll, content, false, false);
+            Rect content = AS2Ui.BeginScroll(body, ref _scroll, entries.Length * rowH);
 
             for (int i = 0; i < entries.Length; i++)
             {
@@ -205,9 +205,9 @@ namespace AS2.ModApi
                     GUI.Label(new Rect(textX, y + titleH + gap, textW, descH), entry.Description, AS2Ui.Dim);
             }
 
-            GUI.EndScrollView();
+            AS2Ui.EndScroll(ref _scroll);
 
-            if (AS2Ui.Button(new Rect(dialog.xMax - 70f * u - 200f * u, dialog.yMax - 100f * u, 200f * u, 60f * u), "Close"))
+            if (AS2Ui.Button(AS2Ui.FooterButtonRect(dialog, 200f, true), "Close"))
                 Close();
 
             Event e2 = Event.current;

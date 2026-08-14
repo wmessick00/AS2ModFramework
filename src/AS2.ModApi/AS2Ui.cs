@@ -99,6 +99,137 @@ namespace AS2.ModApi
             }
         }
 
+        // ---- Dialog chrome -----------------------------------------------------------------------
+        //
+        // Where a panel's title, body and buttons go inside DialogRect. These are the numbers the two
+        // panels that already exist -- the Mod Menu here and the Skin Settings panel in the
+        // AS2-SkinSettings repo -- each arrived at separately and each held their own copy of. A
+        // third mod would have had to measure them off a screenshot or read them out of somebody
+        // else's source, and the two copies had already begun to differ.
+
+        /// <summary>
+        /// Margin down each side of the dialog's contents. The game's own rows start here.
+        /// </summary>
+        public const float SideMargin = 70f;
+
+        /// <summary>Gap between the top of the dialog and the title.</summary>
+        public const float HeaderTop = 44f;
+
+        /// <summary>Height of the title line, and of the dim subtitle under it.</summary>
+        public const float TitleHeight = 56f;
+        public const float SubtitleHeight = 36f;
+
+        /// <summary>Clear space between the header and whatever the panel puts below it.</summary>
+        public const float HeaderGap = 34f;
+
+        /// <summary>
+        /// The button row along the bottom: 60 units tall, its top 100 above the dialog's bottom
+        /// edge. Same baseline as the game's own Back/Next/OK, which is what
+        /// <see cref="EntryButtonRect"/> sits on.
+        /// </summary>
+        public const float FooterButtonHeight = 60f;
+        public const float FooterButtonBaseline = 100f;
+
+        /// <summary>Clear space between the body and the button row.</summary>
+        public const float FooterGap = 20f;
+
+        /// <summary>
+        /// Height to reserve below the body for a plain button row. A panel with more down there --
+        /// a hover description, a standing note -- adds its own on top of this.
+        /// </summary>
+        public static float FooterHeight
+        {
+            get { return (FooterButtonBaseline + FooterGap) * Unit; }
+        }
+
+        /// <summary>The whole screen, for the backdrop behind a panel.</summary>
+        public static Rect FullScreen
+        {
+            get { return new Rect(0f, 0f, Screen.width, Screen.height); }
+        }
+
+        /// <summary>
+        /// A rect spanning the dialog's contents at the given height, inset by <see cref="SideMargin"/>
+        /// on both sides. The width every full-width thing in a panel should use.
+        /// </summary>
+        public static Rect ContentRect(Rect dialog, float y, float height)
+        {
+            float u = Unit;
+            return new Rect(dialog.x + SideMargin * u, y, Mathf.Max(0f, dialog.width - 2f * SideMargin * u), height);
+        }
+
+        /// <summary>
+        /// Height a header drawn by <see cref="Header"/> occupies, trailing gap included, so a caller
+        /// can lay out around it without drawing it first. Pass this straight to
+        /// <see cref="BodyRect"/>.
+        /// </summary>
+        public static float HeaderHeight(bool subtitled)
+        {
+            float u = Unit;
+            return (HeaderTop + TitleHeight + (subtitled ? SubtitleHeight : 0f) + HeaderGap) * u;
+        }
+
+        /// <summary>
+        /// A panel's title, and a dim second line under it when there is one. Returns the height it
+        /// used, which is what <see cref="BodyRect"/> wants.
+        ///
+        /// Pass a blank subtitle for a title on its own; the body then starts higher rather than
+        /// leaving a gap where a line would have been.
+        /// </summary>
+        public static float Header(Rect dialog, string title, string subtitle)
+        {
+            if (NoGuiContext("AS2Ui.Header")) return HeaderHeight(!Str.IsBlank(subtitle));
+
+            bool subtitled = !Str.IsBlank(subtitle);
+
+            try
+            {
+                EnsureStyles();
+                if (Title == null) return HeaderHeight(subtitled);
+
+                float u = Unit;
+                float y = dialog.y + HeaderTop * u;
+
+                if (!Str.IsBlank(title))
+                    GUI.Label(ContentRect(dialog, y, TitleHeight * u), title, Title);
+
+                if (subtitled)
+                    GUI.Label(ContentRect(dialog, y + TitleHeight * u, SubtitleHeight * u), subtitle, Dim);
+            }
+            catch (Exception ex) { WarnOnce("AS2Ui.Header could not draw: " + ex.Message); }
+
+            return HeaderHeight(subtitled);
+        }
+
+        /// <summary>
+        /// What is left of the dialog between a header and a footer: full width, inset by
+        /// <see cref="SideMargin"/>, and never negative in height however small the window gets.
+        ///
+        /// Give the footer the height of everything below the body, buttons included. A panel with
+        /// nothing down there but the button row wants <see cref="FooterHeight"/>; one with a hover
+        /// description or a standing note adds the height of that to it.
+        /// </summary>
+        public static Rect BodyRect(Rect dialog, float headerHeight, float footerHeight)
+        {
+            float top = dialog.y + headerHeight;
+            float bottom = dialog.yMax - footerHeight;
+            return ContentRect(dialog, top, Mathf.Max(0f, bottom - top));
+        }
+
+        /// <summary>
+        /// A button on the dialog's bottom row, against one side or the other.
+        ///
+        /// The width is in design units, like everything else here: 200 is what "Back" and "Close"
+        /// are drawn at, 300 fits a longer label such as "Reset to defaults".
+        /// </summary>
+        public static Rect FooterButtonRect(Rect dialog, float widthUnits, bool fromRight)
+        {
+            float u = Unit;
+            float w = widthUnits * u;
+            float x = fromRight ? dialog.xMax - SideMargin * u - w : dialog.x + SideMargin * u;
+            return new Rect(x, dialog.yMax - FooterButtonBaseline * u, w, FooterButtonHeight * u);
+        }
+
         // ---- Row geometry -----------------------------------------------------------------------
         //
         // The columns the game lays a settings row out on, measured off the real dialog at 2560x1440
@@ -135,6 +266,25 @@ namespace AS2.ModApi
             label   = new Rect(row.x, row.y, LabelColumnRight * u, row.height);
             control = new Rect(row.x + ControlColumnX * u, row.y, ControlColumnWidth * u, row.height);
             value   = new Rect(row.x + ValueColumnX * u, row.y, Mathf.Max(0f, row.width - ValueColumnX * u), row.height);
+        }
+
+        /// <summary>
+        /// The n-th row of a list, <see cref="RowPitch"/> apart, laid out from the top left of the
+        /// rect you are filling.
+        ///
+        /// Inside a scroll view that rect is the content rect, whose origin is 0,0 -- which is why
+        /// the columns above are measured from the row's own x rather than from the dialog's.
+        /// </summary>
+        public static Rect Row(Rect area, int index)
+        {
+            float h = RowPitch * Unit;
+            return new Rect(area.x, area.y + index * h, area.width, h);
+        }
+
+        /// <summary>Height a list of that many rows needs. The content height for a scroll view.</summary>
+        public static float RowsHeight(int rows)
+        {
+            return Mathf.Max(0, rows) * RowPitch * Unit;
         }
 
         // ---- Settings dialog state ------------------------------------------------------------
@@ -355,6 +505,49 @@ namespace AS2.ModApi
             }
         }
 
+        // ---- Measuring text -----------------------------------------------------------------------
+
+        /// <summary>
+        /// One GUIContent, refilled for each measurement. CalcHeight keeps nothing, and OnGUI runs
+        /// once per IMGUI event, so a fresh GUIContent per call would be per-frame garbage in the
+        /// same way <see cref="Invisible"/> was.
+        /// </summary>
+        private static readonly GUIContent Measured = new GUIContent();
+
+        /// <summary>
+        /// The height of one wrapped line in a style, at the width it will be drawn at.
+        ///
+        /// Use this rather than GUIStyle.lineHeight to reserve room for a known number of lines.
+        /// lineHeight is the font's line height; CalcHeight lays text out on the font's line
+        /// *spacing*, and the few units between the two are enough that a rect of lineHeight * n
+        /// clips the last line of an n-line paragraph. Measuring one line with the same call that
+        /// measures the real text settles it.
+        /// </summary>
+        public static float LineHeight(GUIStyle style, float width)
+        {
+            return TextHeight(style, "X", width);
+        }
+
+        /// <summary>
+        /// How tall a string is in a style at a given width, wrapping included. Zero for blank text
+        /// or a missing style, so a caller can add it to a layout without a null check.
+        /// </summary>
+        public static float TextHeight(GUIStyle style, string text, float width)
+        {
+            if (style == null || Str.IsBlank(text) || width <= 0f) return 0f;
+
+            try
+            {
+                Measured.text = text;
+                return style.CalcHeight(Measured, width);
+            }
+            catch (Exception ex)
+            {
+                WarnOnce("AS2Ui.TextHeight could not measure: " + ex.Message);
+                return 0f;
+            }
+        }
+
         // ---- Primitives -------------------------------------------------------------------------
 
         /// <summary>
@@ -553,6 +746,96 @@ namespace AS2.ModApi
             }
         }
 
+        /// <summary>
+        /// A whole settings row for a number: right-aligned label, the game's slider, and the value
+        /// readout to its right. Use it the way you would GUI.HorizontalSlider:
+        ///
+        ///     volume = AS2Ui.SliderRow(row, "Music Volume", volume, 0f, 100f, percent + "%");
+        ///
+        /// The readout is yours to format, because only you know whether the number is a percentage,
+        /// a count or a multiplier. It describes the value you passed in, not the value returned, so
+        /// during a drag it trails the handle by one IMGUI event -- which is what the game's own
+        /// rows do and is not visible at frame rate.
+        ///
+        /// Rows are <see cref="RowPitch"/> apart.
+        /// </summary>
+        public static float SliderRow(Rect row, string label, float value, float min, float max, string valueText)
+        {
+            if (NoGuiContext("AS2Ui.SliderRow")) return value;
+
+            try
+            {
+                EnsureStyles();
+
+                Rect labelRect, control, valueRect;
+                RowRects(row, out labelRect, out control, out valueRect);
+
+                if (!Str.IsBlank(label) && LabelRight != null)
+                    GUI.Label(labelRect, label, LabelRight);
+
+                float result = Slider(control, value, min, max);
+
+                if (!Str.IsBlank(valueText) && Value != null)
+                    GUI.Label(valueRect, valueText, Value);
+
+                return result;
+            }
+            catch (Exception ex)
+            {
+                WarnOnce("AS2Ui.SliderRow failed: " + ex.Message);
+                return value;
+            }
+        }
+
+        /// <summary>
+        /// A whole settings row for a fixed set of options: a slider with one stop per option, and
+        /// the chosen option's label where the number would go. Takes and returns an index.
+        ///
+        ///     quality = AS2Ui.ChoiceRow(row, "Graphics Level", quality, new[] { "Low", "High", "Ultra" });
+        ///
+        /// This is what the game does for Graphics Level, Anti-Aliasing and Resolution, and it is
+        /// worth copying rather than drawing a list: it keeps every setting one row tall, so a panel
+        /// of them stays as short as the game's. A list of buttons turns seven settings into
+        /// something taller than the screen.
+        ///
+        /// The readout follows the handle as it is dragged, so the label always names the option the
+        /// row is about to be set to.
+        /// </summary>
+        public static int ChoiceRow(Rect row, string label, int index, string[] options)
+        {
+            if (NoGuiContext("AS2Ui.ChoiceRow")) return index;
+
+            // No options is not a failure worth warning about -- a schema with an empty list is the
+            // caller's data, not a mistake in this call -- but there is no row to draw either.
+            if (options == null || options.Length == 0) return index;
+
+            try
+            {
+                EnsureStyles();
+
+                int count = options.Length;
+                int current = Mathf.Clamp(index, 0, count - 1);
+
+                Rect labelRect, control, valueRect;
+                RowRects(row, out labelRect, out control, out valueRect);
+
+                if (!Str.IsBlank(label) && LabelRight != null)
+                    GUI.Label(labelRect, label, LabelRight);
+
+                float raw = Slider(control, current, 0f, count - 1);
+                int picked = Mathf.Clamp(Mathf.RoundToInt(raw), 0, count - 1);
+
+                if (Value != null) GUI.Label(valueRect, options[picked] ?? "", Value);
+
+                return picked;
+            }
+            catch (Exception ex)
+            {
+                WarnOnce("AS2Ui.ChoiceRow failed: " + ex.Message);
+                return index;
+            }
+        }
+
         private static GUIStyle _buttonStyle;
 
         /// <summary>
@@ -620,6 +903,213 @@ namespace AS2.ModApi
 
             if (!enabled) return false;
             return GUI.Button(r, GUIContent.none, Invisible);
+        }
+
+        // ---- Scrolling ------------------------------------------------------------------------------
+        //
+        // Unity's scrollbars are the default IMGUI skin's and belong to no game in particular, so a
+        // panel that wants to look like the settings dialog cannot use them and has to draw its own.
+        // That is a page of input handling for something every scrolling panel needs identically,
+        // which is exactly the kind of thing this class exists to stop each mod writing again.
+
+        /// <summary>Strip kept clear at the right of a list for the scrollbar to ride in.</summary>
+        public const float ScrollGutter = 44f;
+
+        /// <summary>
+        /// Side of the scrollbar's thumb. Square, and the same size however long the list is, because
+        /// that is what the game's own scrolling lists draw. A proportional thumb is more informative
+        /// and looks nothing like it: on a list one row too tall it covers almost the whole track.
+        /// </summary>
+        public const float ScrollThumb = 28f;
+
+        private static readonly int ScrollbarHash = "AS2UiScrollbar".GetHashCode();
+
+        /// <summary>
+        /// The scroll view <see cref="EndScroll"/> has to finish, so it can close the same view it
+        /// opened and put the bar beside the same body.
+        ///
+        /// _depth counts calls rather than views, and _active says whether the outermost call really
+        /// opened one. GUI.BeginScrollView and GUI.EndScrollView must balance exactly or Unity logs
+        /// for the rest of the session, and every entry point here is allowed to give up and draw
+        /// nothing -- so "did we begin" cannot be assumed from "was Begin called".
+        /// </summary>
+        private static int _scrollDepth;
+        private static bool _scrollActive;
+        private static Rect _scrollBody;
+        private static float _scrollContent;
+        private static int _scrollFrame;
+
+        /// <summary>
+        /// Opens a scrolling list over <paramref name="body"/> and returns the rect to lay the rows
+        /// out in. Close it with <see cref="EndScroll"/>, which draws the scrollbar.
+        ///
+        ///     Rect content = AS2Ui.BeginScroll(body, ref _scroll, AS2Ui.RowsHeight(items.Count));
+        ///     for (int i = 0; i &lt; items.Count; i++) DrawRow(AS2Ui.Row(content, i));
+        ///     AS2Ui.EndScroll(ref _scroll);
+        ///
+        /// The returned rect starts at 0,0, because coordinates inside a scroll view are relative to
+        /// it -- which is also why the column constants are measured from a row's own x. It is
+        /// narrower than the body by <see cref="ScrollGutter"/>, leaving the bar somewhere to ride
+        /// that the rows do not reach into.
+        ///
+        /// The view itself is the full width of the body, deliberately. Sizing it to the rows instead
+        /// is what lets a horizontal scrollbar in: EndScrollView clamps the horizontal offset to
+        /// (view - visible), which goes negative the moment the view is the narrower of the two, and
+        /// one wheel tick then shunts the whole list sideways. Equal widths make the horizontal range
+        /// exactly zero, so there is nothing to scroll to and nothing to draw a bar for.
+        /// </summary>
+        public static Rect BeginScroll(Rect body, ref Vector2 scroll, float contentHeight)
+        {
+            float gutter = ScrollGutter * Unit;
+            var rows = new Rect(0f, 0f, Mathf.Max(0f, body.width - gutter), Mathf.Max(0f, contentHeight));
+
+            if (NoGuiContext("AS2Ui.BeginScroll")) return rows;
+
+            // A caller that threw between Begin and End left the count standing. Frames are the only
+            // way to tell that from a legitimately open view, since several IMGUI events run inside
+            // one frame; healing on the next frame costs at most the rest of the broken one.
+            if (_scrollDepth > 0 && _scrollFrame != Time.frameCount)
+            {
+                _scrollDepth = 0;
+                _scrollActive = false;
+                WarnOnce("AS2Ui.BeginScroll found an unfinished scroll view from an earlier frame and "
+                       + "dropped it. A panel most likely threw between BeginScroll and EndScroll.");
+            }
+
+            _scrollFrame = Time.frameCount;
+            _scrollDepth++;
+
+            if (_scrollDepth > 1)
+            {
+                WarnOnce("AS2Ui.BeginScroll does not nest; the inner list will not scroll.");
+                return rows;
+            }
+
+            try
+            {
+                scroll.y = Mathf.Clamp(scroll.y, 0f, Mathf.Max(0f, contentHeight - body.height));
+
+                // GUIStyle.none for both bars: Unity's vertical one is the wrong skin, and its
+                // horizontal one used to appear uninvited at small window sizes, where a fixed 15px
+                // vertical bar narrowed the view by more than the gutter -- which scales with the
+                // resolution -- had set aside.
+                scroll = GUI.BeginScrollView(body, scroll, new Rect(0f, 0f, body.width, rows.height),
+                                             GUIStyle.none, GUIStyle.none);
+                scroll.x = 0f;
+
+                _scrollActive = true;
+                _scrollBody = body;
+                _scrollContent = rows.height;
+            }
+            catch (Exception ex)
+            {
+                _scrollActive = false;
+                WarnOnce("AS2Ui.BeginScroll failed: " + ex.Message);
+            }
+
+            return rows;
+        }
+
+        /// <summary>
+        /// Closes the list <see cref="BeginScroll"/> opened and draws the scrollbar beside it,
+        /// updating <paramref name="scroll"/> when the player drags the thumb.
+        /// </summary>
+        public static void EndScroll(ref Vector2 scroll)
+        {
+            if (_scrollDepth == 0)
+            {
+                WarnOnce("AS2Ui.EndScroll was called without a matching BeginScroll, so it did nothing.");
+                return;
+            }
+
+            _scrollDepth--;
+            if (_scrollDepth > 0) return;
+
+            if (!_scrollActive) return;
+            _scrollActive = false;
+
+            try
+            {
+                GUI.EndScrollView();
+
+                float gutter = ScrollGutter * Unit;
+                var track = new Rect(_scrollBody.xMax - gutter, _scrollBody.y, gutter, _scrollBody.height);
+                scroll.y = Scrollbar(track, scroll.y, _scrollContent);
+            }
+            catch (Exception ex) { WarnOnce("AS2Ui.EndScroll failed: " + ex.Message); }
+        }
+
+        /// <summary>
+        /// The game's vertical scrollbar, drawn rather than styled: a pale square thumb on a track a
+        /// shade lighter than the panel behind it. Returns the new scroll offset.
+        ///
+        /// Nothing is drawn, and no control is claimed, when the content already fits; the offset
+        /// comes back as 0, since no other value is in range. Clicking anywhere in the track jumps
+        /// the thumb to the cursor and starts a drag, which is how <see cref="Slider"/> behaves and
+        /// how the game's own lists behave.
+        /// </summary>
+        public static float Scrollbar(Rect track, float scrollY, float contentHeight)
+        {
+            if (NoGuiContext("AS2Ui.Scrollbar")) return scrollY;
+
+            try
+            {
+                float hidden = contentHeight - track.height;
+                if (hidden <= 0f) return 0f;
+
+                float u = Unit;
+                float size = Mathf.Max(4f, ScrollThumb * u);
+                float travel = Mathf.Max(1f, track.height - size);
+                float x = track.x + (track.width - size) * 0.5f;
+
+                int id = GUIUtility.GetControlID(ScrollbarHash, FocusType.Passive);
+                Event e = Event.current;
+
+                switch (e.GetTypeForControl(id))
+                {
+                    case EventType.MouseDown:
+                        if (e.button == 0 && track.Contains(e.mousePosition))
+                        {
+                            GUIUtility.hotControl = id;
+                            scrollY = ScrollAt(e.mousePosition.y, track.y, size, travel, hidden);
+                            e.Use();
+                        }
+                        break;
+
+                    case EventType.MouseDrag:
+                        if (GUIUtility.hotControl == id)
+                        {
+                            scrollY = ScrollAt(e.mousePosition.y, track.y, size, travel, hidden);
+                            e.Use();
+                        }
+                        break;
+
+                    case EventType.MouseUp:
+                        if (GUIUtility.hotControl == id)
+                        {
+                            GUIUtility.hotControl = 0;
+                            e.Use();
+                        }
+                        break;
+                }
+
+                Fill(new Rect(x, track.y, size, track.height), PanelBorder);
+
+                float t = Mathf.Clamp01(scrollY / hidden);
+                Fill(new Rect(x, track.y + travel * t, size, size), TextColor);
+
+                return scrollY;
+            }
+            catch (Exception ex)
+            {
+                WarnOnce("AS2Ui.Scrollbar failed: " + ex.Message);
+                return scrollY;
+            }
+        }
+
+        private static float ScrollAt(float mouseY, float trackY, float size, float travel, float hidden)
+        {
+            return Mathf.Clamp01((mouseY - trackY - size * 0.5f) / travel) * hidden;
         }
     }
 }
