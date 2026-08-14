@@ -14,6 +14,14 @@ namespace AS2.ModApi
     ///
     /// Subscribers are isolated: an exception thrown by one handler is logged and swallowed so it
     /// cannot take out the other subscribers or the game.
+    ///
+    /// <para>
+    /// Subscribe and unsubscribe from any thread you like. Handlers themselves run on the thread
+    /// that raised the event, which is the game thread for every event here. One consequence is
+    /// worth knowing: each event takes its handler list at the moment it starts, so a `-=` that
+    /// lands during a raise can still see one more call. Make a handler that unsubscribes itself
+    /// tolerate that call rather than assume it cannot happen.
+    /// </para>
     /// </summary>
     public static class AS2Events
     {
@@ -90,14 +98,24 @@ namespace AS2.ModApi
         public static string ActiveKey { get; private set; }
 
         // ---- Raising (internal) --------------------------------------------------------------
+        //
+        // Every method here copies its event field to a local before it looks at it. A mod may
+        // call -= from the callback of a web request or a file read, exactly as AS2ModMenu.Register
+        // says it may, and the last -= sets the field to null. Reading the field twice -- once for
+        // the null check, once for GetInvocationList -- lets that removal land between the two, and
+        // GetInvocationList then throws a NullReferenceException. The throw is outside Safe, which
+        // only wraps the subscriber call, so it leaves a Harmony postfix on the game thread with
+        // nobody to catch it. A local cannot change under the method: it raises the handler list as
+        // it was at the top, and a mod that unsubscribes a moment too late gets one more call.
 
         internal static void RaiseSelectorOpened(SelectorKind kind)
         {
             ActiveSelector = kind;
             ActiveKey = CurrentKey(kind);
 
-            if (SelectorOpened == null) return;
-            foreach (Action<SelectorKind> h in SelectorOpened.GetInvocationList())
+            Action<SelectorKind> subscribers = SelectorOpened;
+            if (subscribers == null) return;
+            foreach (Action<SelectorKind> h in subscribers.GetInvocationList())
                 Safe("SelectorOpened", delegate { h(kind); });
         }
 
@@ -105,8 +123,9 @@ namespace AS2.ModApi
         {
             if (ActiveSelector == kind) { ActiveSelector = null; ActiveKey = null; }
 
-            if (SelectorClosed == null) return;
-            foreach (Action<SelectorKind> h in SelectorClosed.GetInvocationList())
+            Action<SelectorKind> subscribers = SelectorClosed;
+            if (subscribers == null) return;
+            foreach (Action<SelectorKind> h in subscribers.GetInvocationList())
                 Safe("SelectorClosed", delegate { h(kind); });
         }
 
@@ -116,22 +135,25 @@ namespace AS2.ModApi
             ActiveSelector = kind;
             ActiveKey = key;
 
-            if (SelectionChanged == null) return;
-            foreach (Action<SelectorKind, string> h in SelectionChanged.GetInvocationList())
+            Action<SelectorKind, string> subscribers = SelectionChanged;
+            if (subscribers == null) return;
+            foreach (Action<SelectorKind, string> h in subscribers.GetInvocationList())
                 Safe("SelectionChanged", delegate { h(kind, key); });
         }
 
         internal static void RaiseLuaStateCreated(Lua lua, string kind)
         {
-            if (lua == null || LuaStateCreated == null) return;
-            foreach (Action<Lua, string> h in LuaStateCreated.GetInvocationList())
+            Action<Lua, string> subscribers = LuaStateCreated;
+            if (lua == null || subscribers == null) return;
+            foreach (Action<Lua, string> h in subscribers.GetInvocationList())
                 Safe("LuaStateCreated", delegate { h(lua, kind); });
         }
 
         internal static void RaiseSettingsDialog(bool open)
         {
-            if (SettingsDialogToggled == null) return;
-            foreach (Action<bool> h in SettingsDialogToggled.GetInvocationList())
+            Action<bool> subscribers = SettingsDialogToggled;
+            if (subscribers == null) return;
+            foreach (Action<bool> h in subscribers.GetInvocationList())
                 Safe("SettingsDialogToggled", delegate { h(open); });
         }
 

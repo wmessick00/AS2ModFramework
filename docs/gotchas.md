@@ -118,6 +118,19 @@ top of any drawing code you add. IMGUI replays one structure for the input and R
 same frame, so a header count from one snapshot and rows from another is the `Mismatched LayoutGroup`
 bug above wearing a different hat. Issue #16.
 
+### Read an event field once, into a local, before you raise it
+
+The same mod that registers a Mod Menu entry off a worker thread unsubscribes from an `AS2Events`
+event off one. A multicast event field goes `null` on the last `-=`, so a `Raise*` method that reads
+the field twice — once for the null check, once for `GetInvocationList` — lets that `-=` land between
+the two reads and throws `NullReferenceException`. `Safe` does not cover it: `Safe` wraps the
+subscriber call, and this throws while building the list of subscribers to call. What is left is an
+uncaught exception in a Harmony postfix on the game thread.
+
+Copy the field to a local first, null-check the local, and enumerate the local. A raise then uses the
+handler list as it stood when it started, which is why the class documents that a handler removed
+mid-raise can still get one more call. Issue #26.
+
 ### The input lock counter belongs to a UIManager instance
 
 See [game-internals.md](game-internals.md#input). Release the same manager you locked, or you
