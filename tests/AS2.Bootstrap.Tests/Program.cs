@@ -52,6 +52,7 @@ namespace AS2.Bootstrap.Tests
                 ReadLinesAndWriteLinesRoundTrip();
                 WriteLinesTruncatesInBothDirections();
                 CommandLineTargetIsRecognised();
+                PartlyLoadedAssembliesAreSalvaged();
 
                 // The checks below drive the whole repair, which starts by asking whether doorstop
                 // was targeted on the command line. That reads this process's own command line, so a
@@ -80,6 +81,43 @@ namespace AS2.Bootstrap.Tests
             }
 
             return Report();
+        }
+
+        // ---- Regression: issue #28 ---------------------------------------------------------------
+        //
+        // ChainToPatchPreloader falls back to scanning every type in the community patch's preloader
+        // when the named type is not there, because the patch renaming a class it owns should not
+        // cost the player their auto-updater. Assembly.GetTypes throws ReflectionTypeLoadException
+        // whenever any type in an assembly references something that will not resolve -- ordinary
+        // for a third-party assembly -- and that throw used to escape, get caught far upstream as
+        // "could not chain to the community patch preloader", and silently stop the updater for the
+        // launch. Which is the exact outcome the fallback exists to prevent.
+        //
+        // The exception is not a failure to enumerate: it carries every type that did load, with a
+        // null per type that did not. Salvage keeps those, and Main is very likely among them.
+
+        private static void PartlyLoadedAssembliesAreSalvaged()
+        {
+            Type[] partial = { typeof(string), null, typeof(int), null };
+            Type[] kept = Bootstrap.Salvage(partial);
+
+            True("Salvage drops the types that did not load", kept.Length == 2);
+
+            bool anyNull = false;
+            foreach (Type t in kept) if (t == null) anyNull = true;
+            False("Salvage leaves no null in the result", anyNull);
+
+            True("Salvage keeps the order it was given",
+                 kept.Length == 2 && kept[0] == typeof(string) && kept[1] == typeof(int));
+
+            True("Salvage tolerates a null array", Bootstrap.Salvage(null).Length == 0);
+            True("Salvage tolerates an empty array", Bootstrap.Salvage(new Type[0]).Length == 0);
+
+            // The all-null case is the one that matters most: it is what an assembly whose every
+            // type failed to load looks like, and it has to come back as "nothing to search"
+            // rather than as an array of nulls that the caller then dereferences.
+            True("Salvage of an all-null array is empty",
+                 Bootstrap.Salvage(new Type[] { null, null }).Length == 0);
         }
 
         // ---- Retarget ---------------------------------------------------------------------------

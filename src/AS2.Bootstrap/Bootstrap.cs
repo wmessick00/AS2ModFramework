@@ -173,7 +173,7 @@ namespace AS2.Bootstrap
 
             if (entry == null)
             {
-                foreach (Type t in asm.GetTypes())
+                foreach (Type t in SafeGetTypes(asm))
                 {
                     entry = FindMain(t);
                     if (entry != null)
@@ -203,6 +203,73 @@ namespace AS2.Bootstrap
         {
             if (t == null) return null;
             return t.GetMethod("Main", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+        }
+
+        /// <summary>
+        /// Every type in an assembly, keeping whatever loaded when some of it did not.
+        ///
+        /// <para>
+        /// Assembly.GetTypes throws ReflectionTypeLoadException whenever any type in the assembly
+        /// references something that will not resolve, which is ordinary for a third-party assembly
+        /// built against a slightly different set of dependencies. That exception is not a failure
+        /// to enumerate: it carries a Types array holding every type that *did* load, with a null in
+        /// each slot that did not.
+        /// </para>
+        ///
+        /// <para>
+        /// Letting it escape defeats the very thing this scan is here for. The caller falls back to
+        /// scanning because the community patch renaming a class it owns should not cost the player
+        /// their auto-updater; an unhandled throw here is caught far upstream as "could not chain to
+        /// the community patch preloader", and the updater silently stops running for that launch.
+        /// The Main we are looking for is very likely among the types that loaded fine.
+        /// </para>
+        /// </summary>
+        private static Type[] SafeGetTypes(Assembly asm)
+        {
+            if (asm == null) return new Type[0];
+
+            try
+            {
+                return asm.GetTypes();
+            }
+            catch (ReflectionTypeLoadException e)
+            {
+                Type[] loaded = Salvage(e.Types);
+                int total = e.Types == null ? 0 : e.Types.Length;
+
+                BootLog.Warn("The patch preloader assembly only partly loaded; searching the "
+                           + loaded.Length + " of " + total + " type(s) that did. This usually means "
+                           + "it references something that is not present in this install.");
+
+                return loaded;
+            }
+            catch (Exception e)
+            {
+                BootLog.Warn("Could not list the patch preloader's types: " + e.Message);
+                return new Type[0];
+            }
+        }
+
+        /// <summary>
+        /// The entries of a partially loaded type array that actually loaded.
+        ///
+        /// Separate from <see cref="SafeGetTypes"/> so it can be exercised without an assembly that
+        /// fails to load, which is not something a cold check can conjure.
+        /// </summary>
+        internal static Type[] Salvage(Type[] types)
+        {
+            if (types == null) return new Type[0];
+
+            int kept = 0;
+            for (int i = 0; i < types.Length; i++)
+                if (types[i] != null) kept++;
+
+            var result = new Type[kept];
+            int next = 0;
+            for (int i = 0; i < types.Length; i++)
+                if (types[i] != null) result[next++] = types[i];
+
+            return result;
         }
 
         // ---- Doorstop config ------------------------------------------------------------------
