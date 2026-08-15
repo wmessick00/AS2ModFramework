@@ -216,6 +216,23 @@ foreach ($dll in @($bootstrapDll, $modApiDll)) {
     if (-not (Test-Path $dll)) { throw "Expected build output is missing: $dll" }
 }
 
+# ---- 4b. Invariants -----------------------------------------------------------------------------
+#
+# README.md tells users this framework cannot change what the game does, and that it reads a score
+# but can never set one. Those claims are checked here, against the DLL that is about to be
+# archived, rather than trusted. A violation stops the release: shipping the archive is exactly the
+# moment the claim starts being made to somebody.
+#
+# Mono.Cecil comes from the BepInEx we just staged and verified against a pinned hash, so this needs
+# nothing installed and nothing downloaded.
+
+Write-Step 'Verifying the read-only and postfix-only invariants'
+
+& (Join-Path $PSScriptRoot 'verify-invariants.ps1') -Assembly $modApiDll -CecilPath (Join-Path $stageCore 'Mono.Cecil.dll')
+if ($LASTEXITCODE -ne 0) {
+    throw "AS2.ModApi violates an invariant this project publishes. Refusing to package it. See the findings above."
+}
+
 New-Item -ItemType Directory -Path (Join-Path $stageDir 'AS2ModLoader')    -Force | Out-Null
 New-Item -ItemType Directory -Path (Join-Path $stageDir 'BepInEx\plugins') -Force | Out-Null
 

@@ -45,6 +45,9 @@ namespace AS2.ModApi.Tests
                 EnumerateFindsEveryFolderShape();
                 NegativeCasingResultsAreNotCached();
                 LinkedFoldersAreNotFollowed();
+
+                SurfaceChecks.Run();
+                StoreChecks.Run();
             }
             catch (Exception e)
             {

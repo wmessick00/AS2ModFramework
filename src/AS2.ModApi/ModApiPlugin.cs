@@ -8,14 +8,21 @@ namespace AS2.ModApi
 {
     /// <summary>
     /// Loads the shared API and applies its patches. Mods depend on this with
-    /// [BepInDependency(ModApiPlugin.Id)] and then talk only to <see cref="AS2Events"/>.
+    /// [BepInDependency(ModApiPlugin.Id)] and then talk to <see cref="AS2Events"/> for the menus and
+    /// the Lua states, and <see cref="AS2GameEvents"/> for what happens during a ride.
+    ///
+    /// <para>
+    /// Only <see cref="AS2Events"/> needs anything applied here. <see cref="AS2GameEvents"/> has no
+    /// patch behind it at all -- it listens on the game's own broadcasts -- and it subscribes lazily,
+    /// on the first `+=`, so a player with no mod that wants a ride event has no listener for one.
+    /// </para>
     /// </summary>
     [BepInPlugin(Id, Name, Version)]
     public sealed class ModApiPlugin : BaseUnityPlugin
     {
         public const string Id = "as2.modapi";
         public const string Name = "Audiosurf 2 Mod API";
-        public const string Version = "0.1.0";
+        public const string Version = "0.2.1";
 
         /// <summary>
         /// Exposed statically so the rest of the assembly can log without threading a reference
