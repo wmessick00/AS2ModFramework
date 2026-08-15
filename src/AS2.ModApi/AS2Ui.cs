@@ -589,14 +589,23 @@ namespace AS2.ModApi
         private static readonly int SliderHash = "AS2UiSlider".GetHashCode();
 
         /// <summary>
-        /// The game's slider: a thin track, white up to the handle and blue past it, with a tall
-        /// white block for the handle. Click or drag anywhere on the row to set the value.
+        /// The game's slider: one rail in two colours, white up to the handle and blue past it, with
+        /// a tall white block for the handle. Both halves are the same thickness, and that thickness
+        /// is <see cref="TrackThickness"/> -- the same measurement the scrollbar's rail uses.
+        /// Click or drag anywhere on the row to set the value.
         ///
         /// The interaction is hand-rolled rather than layered over GUI.HorizontalSlider, because
         /// making the native one invisible means giving it an empty GUIStyle, which leaves it with a
         /// zero-width thumb and correspondingly odd drag and clamping behaviour. Doing the hit test
         /// directly is a dozen lines and behaves predictably.
         /// </summary>
+        /// <summary>
+        /// Handle size. Much taller than the rail, so it reads as a grip rather than as a join
+        /// between the two colours.
+        /// </summary>
+        public const float SliderHandleWidth = 15f;
+        public const float SliderHandleHeight = 44f;
+
         public static float Slider(Rect r, float value, float min, float max)
         {
             if (NoGuiContext("AS2Ui.Slider")) return value;
@@ -612,7 +621,7 @@ namespace AS2.ModApi
         private static float SliderBody(Rect r, float value, float min, float max)
         {
             float u = Unit;
-            float handleW = Mathf.Max(2f, 9f * u);
+            float handleW = Mathf.Max(2f, SliderHandleWidth * u);
             float usable = Mathf.Max(1f, r.width - handleW);
             float span = Mathf.Max(0.0001f, max - min);
 
@@ -649,13 +658,20 @@ namespace AS2.ModApi
 
             float t = Mathf.Clamp01((value - min) / span);
             float handleX = r.x + usable * t;
-            float trackH = Mathf.Max(1f, 3f * u);
-            float handleH = 34f * u;
             float split = handleX + handleW * 0.5f;
+
+            float trackH = Mathf.Max(1f, TrackThickness * u);
+            float handleH = SliderHandleHeight * u;
             float trackY = r.center.y - trackH * 0.5f;
 
+            // Both halves are the same thickness: solid white up to the handle, solid blue past it.
+            // An earlier attempt drew the white side as a hollow outlined channel, taller than the
+            // blue, after reading it that way off a compressed screenshot. It is not -- the game
+            // draws one rail in two colours, and the only thing the handle changes is where they
+            // meet.
             Fill(new Rect(r.x, trackY, split - r.x, trackH), SliderFilled);
             Fill(new Rect(split, trackY, r.xMax - split, trackH), SliderRemainder);
+
             Fill(new Rect(handleX, r.center.y - handleH * 0.5f, handleW, handleH), SliderFilled);
 
             return value;
@@ -922,6 +938,20 @@ namespace AS2.ModApi
         /// </summary>
         public const float ScrollThumb = 28f;
 
+        /// <summary>
+        /// Thickness of the rail a handle travels along: the width of the scrollbar's track and the
+        /// height of a slider's track, which are the same measurement on the game's own dialog and
+        /// are therefore one constant here.
+        ///
+        /// <para>
+        /// The rail is deliberately much thinner than <see cref="ScrollThumb"/>. Drawing the track
+        /// at the thumb's width -- which this used to do -- produces a column with a slightly paler
+        /// square sliding down it, and reads as a progress bar rather than as a scrollbar. The thumb
+        /// has to overhang the rail for the shape to say "handle".
+        /// </para>
+        /// </summary>
+        public const float TrackThickness = 8f;
+
         private static readonly int ScrollbarHash = "AS2UiScrollbar".GetHashCode();
 
         /// <summary>
@@ -1059,8 +1089,13 @@ namespace AS2.ModApi
 
                 float u = Unit;
                 float size = Mathf.Max(4f, ScrollThumb * u);
+                float rail = Mathf.Max(2f, TrackThickness * u);
                 float travel = Mathf.Max(1f, track.height - size);
-                float x = track.x + (track.width - size) * 0.5f;
+
+                // Rail and thumb share a centre line; the thumb overhangs on both sides. The hit
+                // test below still uses the whole gutter, so a thin rail costs no click target.
+                float thumbX = track.x + (track.width - size) * 0.5f;
+                float railX = track.x + (track.width - rail) * 0.5f;
 
                 int id = GUIUtility.GetControlID(ScrollbarHash, FocusType.Passive);
                 Event e = Event.current;
@@ -1093,10 +1128,10 @@ namespace AS2.ModApi
                         break;
                 }
 
-                Fill(new Rect(x, track.y, size, track.height), PanelBorder);
+                Fill(new Rect(railX, track.y, rail, track.height), PanelBorder);
 
                 float t = Mathf.Clamp01(scrollY / hidden);
-                Fill(new Rect(x, track.y + travel * t, size, size), TextColor);
+                Fill(new Rect(thumbX, track.y + travel * t, size, size), TextColor);
 
                 return scrollY;
             }
