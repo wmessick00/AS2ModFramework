@@ -138,22 +138,44 @@ reflection reach, and treat every argument as hostile — it comes from Lua, and
 guarantees you nothing about it. See
 [docs/game-internals.md](docs/game-internals.md#the-state-is-sandboxed-and-what-you-register-is-not).
 
+`AS2GameEvents` covers the other half — what the game is doing, rather than what the menus are:
+
+```csharp
+AS2GameEvents.RideScored += result =>
+    Logger.LogInfo(result.Song.Display + " scored " + result.Score);
+
+AS2GameEvents.LuaSkinError += message => Logger.LogWarning("skin error: " + message);
+```
+
+There is no Harmony patch behind any of it. The game already broadcasts these on its own event bus,
+so the framework only listens. Three things follow, and they are worth knowing before you build on
+it:
+
+- **The set is closed.** The events listed on `AS2GameEvents` are the whole supported surface, and
+  there is no API anywhere that takes a message name. Adding one is a change to this repo.
+- **It is read-only.** A handler is given `SongInfo` and `RideResult`, which are immutable copies of
+  what the game holds — never the game's own objects. A score can be read and cannot be set.
+- **Subscribe from `Awake`, on the main thread.** The first `+=` is what attaches the framework to
+  the underlying broadcast.
+
 Also available:
 
 | API | For |
 | --- | --- |
 | `AS2Events.ActiveSelector` / `ActiveKey` | Current selector state without tracking it yourself |
+| `AS2GameEvents` | Rides, songs, scores, tricks, traffic and Lua errors, as read-only events |
 | `TargetResolver` | Turning the game's relative paths into stable storage keys, including Workshop items and mode-dedicated skin folders |
 | `AS2Input.Lock()` | Holding the game's input lock without stealing it from another mod |
 | `AS2Ui` / `AS2ModMenu` | Drawing UI that matches the game's settings dialog — panel chrome, settings rows and the game's own scrollbar — and registering an entry in the shared Mod Menu |
 | `AS2Paths` | Where to keep content data, as opposed to BepInEx plugin config |
+| `AS2Store` | Writing that data without losing it — an atomic swap, and quarantine instead of deletion for a file that will not parse |
 
 [docs/game-internals.md](docs/game-internals.md) documents the hookable surface these are built on.
 
 ## What this framework does not touch
 
-Two questions get asked about any Audiosurf 2 mod loader, and both have concrete answers rather than
-assurances.
+Two questions get asked about any Audiosurf 2 mod loader. Both have concrete answers rather than
+assurances — and since `AS2ModApi` 0.2.0 both answers are checked by a script rather than by review.
 
 **It cannot change what the game does.** Every Harmony patch here is a *postfix*, applied through a
 single helper that passes `null` for the prefix. There are no prefixes, so no game method can be
@@ -162,11 +184,25 @@ to `__result`. The framework observes and re-broadcasts, and that is all it is s
 of. Four types are patched — `RingDesignManager`, `ModeSelect`, `Settings` and `LuaSandbox` — and
 each patch is listed in [`src/AS2.ModApi/Patches.cs`](src/AS2.ModApi/Patches.cs).
 
-**There is no scoring surface.** Nothing here references `ScoreManager`, `Leaderboard`,
-`LiveScoreboard`, Steam, or achievements, and no event exposes them. Note this is a statement about
-*this framework*, not about what modes may do: the game gives Lua `SetLocalScore` / `SetGlobalScore`
-and has a `ScoreManager.modInChargeOfScoring` flag, because custom modes doing their own scoring is
-a designed feature. The framework simply adds nothing to it.
+**It reads the game and never writes to it.** `AS2GameEvents` does expose the score, which an
+earlier version of this framework did not. Reading one is not setting one, and the difference is
+enforced rather than promised. `AS2.ModApi` broadcasts nothing on the game's event bus, writes no
+game field, calls no reflective setter, and calls into the game only through a short reviewed
+allowlist — currently the four `UIManager` members behind `AS2Input.Lock()`, `Messenger.AddListener`,
+and three path accessors. No public member of the API exposes a game object either, so a subscriber
+receives immutable copies and has nothing to write back through.
+
+[`tools/verify-invariants.ps1`](tools/verify-invariants.ps1) checks all of that against the compiled
+DLL with Mono.Cecil, and [`tools/pack.ps1`](tools/pack.ps1) runs it before it archives anything, so a
+release cannot ship a violation. Run it yourself against the DLL in the archive:
+
+```powershell
+.\tools\verify-invariants.ps1 -Assembly "<game>\BepInEx\plugins\AS2.ModApi.dll"
+```
+
+Note this is a statement about *this framework*, not about what modes may do: the game gives Lua
+`SetLocalScore` / `SetGlobalScore` and has a `ScoreManager.modInChargeOfScoring` flag, because custom
+modes doing their own scoring is a designed feature. The framework simply adds nothing to it.
 
 The corresponding promise to the community patch is in the install section above: on the launch
 option install this modifies **no game file at all**, and `winhttp.dll` is never touched by any
