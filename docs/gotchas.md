@@ -118,6 +118,9 @@ top of any drawing code you add. IMGUI replays one structure for the input and R
 same frame, so a header count from one snapshot and rows from another is the `Mismatched LayoutGroup`
 bug above wearing a different hat. Issue #16.
 
+Covered by `ConcurrencyChecks.RegisteringWhileDrawingDoesNotThrow` in
+`tests/AS2.ModApi.Tests`, which races a registering thread against a walking one.
+
 ### Read an event field once, into a local, before you raise it
 
 The same mod that registers a Mod Menu entry off a worker thread unsubscribes from an `AS2Events`
@@ -130,6 +133,10 @@ uncaught exception in a Harmony postfix on the game thread.
 Copy the field to a local first, null-check the local, and enumerate the local. A raise then uses the
 handler list as it stood when it started, which is why the class documents that a handler removed
 mid-raise can still get one more call. Issue #26.
+
+Covered by `ConcurrencyChecks.UnsubscribingWhileRaisingDoesNotThrow`, which races a subscriber
+against a raise. The one-more-call consequence has its own check beside it, because it is a promise
+the class makes to mods and not merely a side effect.
 
 ### The input lock counter belongs to a UIManager instance
 

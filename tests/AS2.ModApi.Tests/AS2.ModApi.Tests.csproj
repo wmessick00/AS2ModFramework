@@ -50,6 +50,22 @@
     <!-- Atomic writes and quarantine. Pure file work, so it needs no game to exercise. -->
     <Compile Include="..\..\src\AS2.ModApi\AS2Store.cs"       Link="Production\AS2Store.cs" />
 
+    <!--
+      The two concurrency fixes that shipped as bugs first, and the patch registration behind them.
+
+      These three do reference the game, so Shims.cs stands in for what they touch: an empty
+      LuaInterface.Lua, the handful of game statics AS2Events.CurrentKey reads, and enough of Harmony
+      for Patches to run its by-name lookups. That buys regression cover for issue #16 and issue #26,
+      which are locking bugs no reader can check by looking and no launch reliably reproduces.
+
+      The shims copy the shape of the game's members, not the game's assembly, so they cannot catch a
+      member the community patch renames. The real build of AS2.ModApi compiles against the shipped
+      Assembly-CSharp and is what fails then. See the note at the top of Shims.cs.
+    -->
+    <Compile Include="..\..\src\AS2.ModApi\ModMenuRegistry.cs" Link="Production\ModMenuRegistry.cs" />
+    <Compile Include="..\..\src\AS2.ModApi\AS2Events.cs"       Link="Production\AS2Events.cs" />
+    <Compile Include="..\..\src\AS2.ModApi\Patches.cs"         Link="Production\Patches.cs" />
+
     <!-- The assertions and the pass/fail summary, shared with tests\AS2.Bootstrap.Tests. -->
     <Compile Include="..\Check.cs" Link="Check.cs" />
   </ItemGroup>
