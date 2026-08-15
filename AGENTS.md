@@ -38,17 +38,29 @@ anything:
 before asking for a launch:
 
 ```bash
-dotnet run --project tests/AS2.ModApi.Tests       # path and key logic
+dotnet run --project tests/AS2.ModApi.Tests       # paths, keys, the message table, the data store
 dotnet run --project tests/AS2.Bootstrap.Tests    # doorstop_config.ini rewrite
+```
+
+One more, which needs the game installed because it reads the built DLL:
+
+```powershell
+.\tools\verify-invariants.ps1                     # the read-only and postfix-only invariants
 ```
 
 Exit code 0 means every check passed. Both projects compile the real source files rather than
 referencing the built DLL, so they cannot drift from what ships, and neither needs a game installed.
 
-The first compiles `TargetResolver.cs`, `PathGuard.cs`, `Str.cs` and `SelectorKind.cs`. That is why
-`Str` and `SelectorKind` sit in their own files: every file on that project's `Compile` list has to
-stay free of BepInEx and Unity. Adding an event or a hook does not belong there; changing how a key
-is built or validated does.
+The first compiles `TargetResolver.cs`, `PathGuard.cs`, `Str.cs`, `SelectorKind.cs`,
+`MessageTable.cs` and `AS2Store.cs`. That is why `Str` and `SelectorKind` sit in their own files:
+every file on that project's `Compile` list has to stay free of BepInEx and Unity. Adding an event
+or a hook does not belong there; changing how a key is built or validated does, and so do the last
+two — a wrong message arity breaks the *game's* listeners, and a wrong write loses a player's data,
+and neither should need a launch to catch.
+
+It also scans the production sources as text, which is how it checks that only `MessengerBridge.cs`
+touches the game's `Messenger` and that nothing broadcasts. That scan strips comments first, because
+this repo documents itself heavily and prose naming a thing is not a use of it.
 
 The second compiles `Bootstrap.cs` and `BootLog.cs` whole, and needs no shim: `AS2.Bootstrap`
 references mscorlib and System and nothing else. Run it after any change to `Retarget`, `ReadLines`,
@@ -104,18 +116,33 @@ that throws must never take the game down with it.
 - `net35` only. No `string.IsNullOrWhiteSpace`, no `Task`, no `ValueTuple`, no string interpolation
   habits that assume newer BCL. `Str.IsBlank` exists for the first one.
 
-## Two invariants worth not breaking by accident
+## Four invariants worth not breaking by accident
 
-Both are claims the README makes to users, so changing either is a decision, not a refactor.
+All four are claims the README makes to users, so changing any of them is a decision, not a
+refactor. Three are checked by [`tools/verify-invariants.ps1`](tools/verify-invariants.ps1), which
+walks the compiled `AS2.ModApi.dll` with Mono.Cecil and which `tools/pack.ps1` runs before it
+archives anything. The rule numbers below are that script's.
 
 1. **Postfixes only.** Every patch goes through `Patches.Patch`, which passes `null` for the prefix.
    No prefixes, no transpilers, no writing back to `__result`. That is what makes "this framework
    cannot change what the game does" a structural fact rather than a promise, and it is the honest
-   answer to "does this let people cheat". Adding a prefix costs that answer.
-2. **The Lua sandbox is the game's, and `LuaStateCreated` must stay downstream of it.** `NewLua`
+   answer to "does this let people cheat". Adding a prefix costs that answer. *(script rule 5)*
+2. **Read the game, never write to it.** No `Broadcast`, no game field written, no reflective
+   setter, and no call into `Assembly-CSharp` outside the allowlist at the top of the script. No
+   public member exposes a game type either, so a subscriber gets immutable copies. This is what
+   lets `AS2GameEvents` carry a score honestly. *(script rules 1, 2, 3, 4 and 6)*
+3. **The game event set is closed.** `MessageTable` declares every message and its arity;
+   `MessengerBridge` is `internal` and is the only file that touches the game's `Messenger`; nothing
+   public takes a message name. The arity half is not a style rule — all four `Messenger` classes
+   share one event table, so a wrong argument count throws inside the *game's* own listeners, not
+   ours. `tests/AS2.ModApi.Tests` re-states every shape by hand and fails when the two disagree.
+4. **The Lua sandbox is the game's, and `LuaStateCreated` must stay downstream of it.** `NewLua`
    sandboxes the state before returning; patching it as a postfix is what hands subscribers a
    sandboxed interpreter. Skins and modes are Workshop downloads and are not trusted. See
    [docs/game-internals.md](docs/game-internals.md#the-state-is-sandboxed-and-what-you-register-is-not).
+
+A check that cannot fail proves nothing, so if you change that script, break each rule on purpose
+once and watch it fail before you trust it again.
 
 Anything turning a caller-supplied name into a path goes through `PathGuard.IsPlainFileName` or
 `TargetResolver.FolderForKey`. Keys are built from Workshop folder names; they are not trusted input
