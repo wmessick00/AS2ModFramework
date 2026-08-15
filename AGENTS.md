@@ -51,16 +51,28 @@ One more, which needs the game installed because it reads the built DLL:
 Exit code 0 means every check passed. Both projects compile the real source files rather than
 referencing the built DLL, so they cannot drift from what ships, and neither needs a game installed.
 
-The first compiles `TargetResolver.cs`, `PathGuard.cs`, `Str.cs`, `SelectorKind.cs`,
-`MessageTable.cs` and `AS2Store.cs`. That is why `Str` and `SelectorKind` sit in their own files:
-every file on that project's `Compile` list has to stay free of BepInEx and Unity. Adding an event
-or a hook does not belong there; changing how a key is built or validated does, and so do the last
-two — a wrong message arity breaks the *game's* listeners, and a wrong write loses a player's data,
-and neither should need a launch to catch.
+The first compiles the production sources in two groups.
+
+**Game-free by construction:** `TargetResolver.cs`, `PathGuard.cs`, `Str.cs`, `SelectorKind.cs`,
+`MessageTable.cs`, `AS2Store.cs` and `ModMenuRegistry.cs`. That is why `Str` and `SelectorKind` sit
+in their own files, and why the Mod Menu's registry sits apart from the panel that draws it: a wrong
+message arity breaks the *game's* listeners, a wrong write loses a player's data, and an unlocked
+list mutation shuts the shared hub — and none of those should need a launch to catch.
+
+**Behind shims:** `AS2Events.cs` and `Patches.cs`, which do reach for the game. `Shims.cs` stands in
+for what they touch — an empty `LuaInterface.Lua`, the game statics `CurrentKey` reads, and enough
+of Harmony for `Patches` to run its by-name lookups. Those shims copy the *shape* of the game's
+members, not the game's assembly, so they cannot catch a member a community patch renames; the real
+build of `AS2.ModApi` compiles against the shipped `Assembly-CSharp` and is what fails then. The
+division is deliberate: the compiler already guards the binding, so these checks guard the locking
+and the degradation paths it cannot.
 
 It also scans the production sources as text, which is how it checks that only `MessengerBridge.cs`
 touches the game's `Messenger` and that nothing broadcasts. That scan strips comments first, because
 this repo documents itself heavily and prose naming a thing is not a use of it.
+
+A regression check that cannot fail is worth nothing, so each one here was run against the unfixed
+shape of the code before it was trusted. Do the same to any you add.
 
 The second compiles `Bootstrap.cs` and `BootLog.cs` whole, and needs no shim: `AS2.Bootstrap`
 references mscorlib and System and nothing else. Run it after any change to `Retarget`, `ReadLines`,
