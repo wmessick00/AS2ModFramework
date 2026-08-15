@@ -42,6 +42,16 @@ namespace AS2.ModApi
             Warnings.Add(message == null ? "" : message.ToString());
         }
 
+        /// <summary>
+        /// Collected alongside the warnings rather than separately. Nothing asserts on the severity
+        /// of a line, only on whether the code said something before it gave up, so keeping one list
+        /// keeps <see cref="Mentions"/> meaning what it says.
+        /// </summary>
+        internal void LogError(object message)
+        {
+            Warnings.Add(message == null ? "" : message.ToString());
+        }
+
         internal void Clear() { Warnings.Clear(); }
 
         /// <summary>Whether any warning so far contains the given fragment, ignoring case.</summary>

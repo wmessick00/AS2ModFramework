@@ -41,6 +41,14 @@
     <Compile Include="..\..\src\AS2.ModApi\PathGuard.cs"      Link="Production\PathGuard.cs" />
     <Compile Include="..\..\src\AS2.ModApi\Str.cs"            Link="Production\Str.cs" />
     <Compile Include="..\..\src\AS2.ModApi\SelectorKind.cs"   Link="Production\SelectorKind.cs" />
+    <!--
+      The closed set of game broadcasts and their arities. This is the reason MessageTable.cs holds
+      no Unity, BepInEx or game reference: a wrong arity corrupts the game's shared event table and
+      breaks its own listeners, so it has to be checkable without a launch. See SurfaceChecks.cs.
+    -->
+    <Compile Include="..\..\src\AS2.ModApi\MessageTable.cs"   Link="Production\MessageTable.cs" />
+    <!-- Atomic writes and quarantine. Pure file work, so it needs no game to exercise. -->
+    <Compile Include="..\..\src\AS2.ModApi\AS2Store.cs"       Link="Production\AS2Store.cs" />
 
     <!-- The assertions and the pass/fail summary, shared with tests\AS2.Bootstrap.Tests. -->
     <Compile Include="..\Check.cs" Link="Check.cs" />
