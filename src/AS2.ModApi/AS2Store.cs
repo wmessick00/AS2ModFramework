@@ -66,8 +66,8 @@ namespace AS2.ModApi
         /// <para>
         /// File.Replace is that swap and is preferred, because it also keeps a <c>.prev</c> copy of
         /// what was there. It fails across volumes and on some network paths, and the game folder is
-        /// somewhere the player chose, so there is a fallback: delete and rename. That fallback has
-        /// a real -- if tiny -- window where neither file exists, which is why it is second.
+        /// somewhere the player chose, so there is a fallback: <see cref="RenameIntoPlace"/>. The
+        /// fallback keeps a <c>.prev</c> copy too, and for the same reason -- see the note there.
         /// </para>
         ///
         /// <para>Returns false rather than throwing. Losing a save is worth a log line, not a crash.</para>
@@ -104,9 +104,7 @@ namespace AS2.ModApi
                         "Atomic replace of " + path + " failed, falling back to a rename: "
                         + replaceFailed.Message);
 
-                    File.Delete(path);
-                    File.Move(temp, path);
-                    return true;
+                    return RenameIntoPlace(path, temp, previous);
                 }
             }
             catch (Exception e)
@@ -114,6 +112,69 @@ namespace AS2.ModApi
                 ModApiPlugin.Log.LogError("Could not write " + path + ": " + e);
                 try { if (File.Exists(temp)) File.Delete(temp); } catch { /* nothing left to try */ }
                 return false;
+            }
+        }
+
+        /// <summary>
+        /// The fallback swap, for the filesystems where File.Replace does not work.
+        ///
+        /// <para>
+        /// This used to delete the old file and then rename the new one over it. Two unguarded steps
+        /// are one step too many: if the delete won and the rename then lost -- an anti-virus scanner
+        /// holding the temp file for a moment, a sharing violation, a full disk -- the old contents
+        /// were already gone, and the caller's cleanup deleted the temp file as well. Both copies of
+        /// the player's data went, and the method reported an ordinary failed write.
+        /// </para>
+        ///
+        /// <para>
+        /// So the old file moves aside instead of going away. Every step after that has somewhere to
+        /// go back to: the rename fails, the old file comes back, and the write is a plain failure
+        /// again. The name it moves to is the same <c>.prev</c> File.Replace uses, so both paths
+        /// leave the folder in one shape, and the copy stays there after a success for the same
+        /// reason File.Replace keeps one.
+        /// </para>
+        ///
+        /// <para>Throws on failure, which the caller logs. Returns true only once the swap is done.</para>
+        /// </summary>
+        private static bool RenameIntoPlace(string path, string temp, string previous)
+        {
+            // Clearing the stale copy is safe here and nowhere later: the real file is still in
+            // place, so a throw at this point costs nothing but the write.
+            if (File.Exists(previous)) File.Delete(previous);
+            File.Move(path, previous);
+
+            try
+            {
+                File.Move(temp, path);
+            }
+            catch
+            {
+                Restore(previous, path);
+                throw;
+            }
+
+            return true;
+        }
+
+        /// <summary>
+        /// Puts the old contents back after the fallback swap failed halfway.
+        ///
+        /// If even this cannot run, the file is still on disk under the <c>.prev</c> name and the
+        /// player can rename it by hand -- so the log line has to say so. That is the whole reason
+        /// the old file is moved rather than deleted: there is always something left to name.
+        /// </summary>
+        private static void Restore(string previous, string path)
+        {
+            try
+            {
+                if (!File.Exists(path) && File.Exists(previous)) File.Move(previous, path);
+            }
+            catch (Exception e)
+            {
+                ModApiPlugin.Log.LogError(
+                    "Could not put " + path + " back after the write failed: " + e.Message
+                    + " The previous contents are safe as " + previous
+                    + "; rename that file to " + Path.GetFileName(path) + " to get them back.");
             }
         }
 
