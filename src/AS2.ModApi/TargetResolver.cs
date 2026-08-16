@@ -359,6 +359,17 @@ namespace AS2.ModApi
         /// does not arrive through <see cref="SafeSubdirectories"/>: skins\, mods\ and a mode's own
         /// skins\ are all composed rather than listed. KeyForFolder would refuse whatever came back
         /// anyway, but only after this had already walked somebody else's disk.
+        ///
+        /// <para>
+        /// An all-digit name is not by itself enough to say a folder is a Workshop container rather
+        /// than a plain local skin or mode somebody happened to name with digits ("skins/2024",
+        /// "mods/7"). A real container never carries the schema/content file directly -- only the
+        /// items inside it do -- so a digit-named folder that does ship
+        /// <paramref name="fileName"/> itself is treated as a target and never descended into (see
+        /// issue #33). Without this, such a folder was silently skipped: <c>Consider</c> was never
+        /// called on the container itself, and its contents are not shaped like a container's, so
+        /// nothing inside it matched either.
+        /// </para>
         /// </summary>
         private static List<string> CollectFrom(string containerDir, SelectorKind kind, string fileName,
                                                 List<Target> into, HashSet<string> seen)
@@ -376,7 +387,7 @@ namespace AS2.ModApi
             foreach (string dir in SafeSubdirectories(containerDir))
             {
                 string name = new DirectoryInfo(dir).Name;
-                if (WorkshopContainer.IsMatch(name))
+                if (WorkshopContainer.IsMatch(name) && !HasFileDirectly(dir, fileName))
                 {
                     foreach (string inner in SafeSubdirectories(dir))
                     {
@@ -390,6 +401,19 @@ namespace AS2.ModApi
                 Consider(dir, kind, fileName, into, seen);
             }
             return inspected;
+        }
+
+        /// <summary>
+        /// Whether a candidate folder ships <paramref name="fileName"/> directly inside it, which is
+        /// what tells a digit-named local target apart from a Workshop container of the same shape
+        /// before deciding to look inside it instead of at it. Errors read as "no" rather than
+        /// throwing: the caller falls back to treating the folder as a container either way, which is
+        /// the behaviour this repo already had for everything that is not a digit-named target.
+        /// </summary>
+        private static bool HasFileDirectly(string folder, string fileName)
+        {
+            try { return File.Exists(Path.Combine(folder, fileName)); }
+            catch { return false; }
         }
 
         private static void Consider(string folder, SelectorKind kind, string fileName,

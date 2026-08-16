@@ -66,8 +66,12 @@ namespace AS2.ModApi
         /// <para>
         /// File.Replace is that swap and is preferred, because it also keeps a <c>.prev</c> copy of
         /// what was there. It fails across volumes and on some network paths, and the game folder is
-        /// somewhere the player chose, so there is a fallback: delete and rename. That fallback has
-        /// a real -- if tiny -- window where neither file exists, which is why it is second.
+        /// somewhere the player chose, so there is a fallback: rename the previous save aside, move
+        /// the new file into place, then drop the renamed-aside copy. That fallback has a real -- if
+        /// tiny -- window where neither file is at <c>path</c>, which is why it is second. It never
+        /// has a window where neither file exists anywhere: renaming aside rather than deleting means
+        /// a failure on the move that follows still leaves both copies recoverable on disk under
+        /// their own names, which a bare delete-then-move does not (see issue #32).
         /// </para>
         ///
         /// <para>Returns false rather than throwing. Losing a save is worth a log line, not a crash.</para>
@@ -104,9 +108,7 @@ namespace AS2.ModApi
                         "Atomic replace of " + path + " failed, falling back to a rename: "
                         + replaceFailed.Message);
 
-                    File.Delete(path);
-                    File.Move(temp, path);
-                    return true;
+                    return FallbackRename(path, temp);
                 }
             }
             catch (Exception e)
@@ -116,6 +118,95 @@ namespace AS2.ModApi
                 return false;
             }
         }
+
+        /// <summary>
+        /// The fallback swap used when File.Replace itself is not available. Delete-then-move was
+        /// the original shape here and is wrong: it is two separate, unguarded operations, and a
+        /// crash or a lock between them (an AV scanner, a transient sharing violation, a full disk)
+        /// leaves the outer catch deleting <paramref name="temp"/> as "cleanup" with the previous
+        /// save already gone -- both copies lost, reported as an ordinary write failure rather than
+        /// what it is (see issue #32).
+        ///
+        /// <para>
+        /// This renames <paramref name="path"/> aside instead of deleting it, moves the new content
+        /// into place, and only then drops the renamed-aside copy -- restoring it if the move fails.
+        /// Every step from here on either leaves both files present under their own names or leaves
+        /// exactly the swap File.Replace itself would have made; nothing is deleted before its
+        /// replacement is confirmed on disk.
+        /// </para>
+        /// </summary>
+        private static bool FallbackRename(string path, string temp)
+        {
+            string backup = path + ".bak";
+
+            // A stray .bak from an earlier, unrecovered failure of this same fallback would make the
+            // rename below throw "file already exists" and abort a write that has nothing to do with
+            // it. Clearing it first costs nothing: this call is about to make a fresher one anyway.
+            try { if (File.Exists(backup)) File.Delete(backup); } catch { /* best effort */ }
+
+            try
+            {
+                File.Move(path, backup);
+            }
+            catch (Exception renameAsideFailed)
+            {
+                ModApiPlugin.Log.LogError(
+                    "Could not set aside " + path + " for the fallback rename: " + renameAsideFailed.Message);
+                try { if (File.Exists(temp)) File.Delete(temp); } catch { /* nothing left to try */ }
+                return false;
+            }
+
+            try
+            {
+                MoveIntoPlace(temp, path);
+            }
+            catch (Exception moveFailed)
+            {
+                // The previous save is safely under backup's name; put it straight back rather than
+                // leaving the player with nothing at path.
+                try
+                {
+                    RestoreBackup(backup, path);
+                    ModApiPlugin.Log.LogError(
+                        "Could not move the new " + path + " into place, restored the previous save: "
+                        + moveFailed.Message);
+                    // The abandoned new content is redundant once the old file is safely back: keep
+                    // no more than File.Replace itself would have left behind on an ordinary failure.
+                    try { if (File.Exists(temp)) File.Delete(temp); } catch { /* nothing left to try */ }
+                }
+                catch (Exception restoreFailed)
+                {
+                    // The case the rename-aside exists to survive: neither file could end up at path.
+                    // Nothing is lost even here, only misplaced -- the previous save is intact at
+                    // backup and the new contents are intact at temp, both under their own names, so
+                    // this deliberately deletes neither.
+                    ModApiPlugin.Log.LogError(
+                        "Could not write " + path + " and could not restore the previous save either. "
+                        + "The previous save is intact at " + backup + " and the new contents are intact "
+                        + "at " + temp + ". Restore failure: " + restoreFailed.Message
+                        + ". Original failure: " + moveFailed.Message);
+                }
+                return false;
+            }
+
+            try { File.Delete(backup); } catch { /* a stray .bak left behind is not a failure */ }
+            return true;
+        }
+
+        /// <summary>
+        /// Hooks for the two moves inside <see cref="FallbackRename"/> that put the new content in
+        /// place and, failing that, restore the old. Production always uses the real
+        /// <see cref="File.Move(string, string)"/>; nothing here changes unless a test overrides it.
+        ///
+        /// They exist because those two failures are the ones issue #32 is about, and neither can be
+        /// made to happen on a real filesystem to order: the window between the rename-aside
+        /// succeeding and the next move starting is real but microseconds wide, so a test cannot race
+        /// it reliably. See StoreChecks.cs for how the cold tests use these.
+        /// </summary>
+        internal static Action<string, string> MoveIntoPlace = File.Move;
+
+        /// <summary>See <see cref="MoveIntoPlace"/>.</summary>
+        internal static Action<string, string> RestoreBackup = File.Move;
 
         /// <summary>
         /// Moves a file that could not be parsed aside, so the mod can start fresh without deleting

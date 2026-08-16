@@ -91,6 +91,8 @@ namespace AS2.ModApi.Tests
             MakeTarget("skins/123456/FromWorkshop");      // Workshop item, all-digit container
             MakeTarget("mods/mymode");                    // a mode
             MakeTarget("mods/mymode/skins/Dedicated");    // skin dedicated to that mode
+            MakeTarget("skins/2024");                     // regression, issue #33: digit-named plain skin
+            MakeTarget("mods/7");                          // regression, issue #33: digit-named plain mode
             Directory.CreateDirectory(Path.Combine(_root, "skins", "NoSchema"));  // must be ignored
         }
 
@@ -319,11 +321,24 @@ namespace AS2.ModApi.Tests
             True("Enumerate finds the mode", keys.Contains("mods/mymode"));
             True("Enumerate finds a mode's dedicated skin", keys.Contains("mods/mymode/skins/Dedicated"));
             False("Enumerate skips a folder with no schema", keys.Contains("skins/NoSchema"));
-            Same("Enumerate found exactly the four fixtures", found.Count.ToString(), "4");
+
+            // Regression: issue #33. A digit-named folder is not automatically a Workshop container --
+            // one that ships the schema file directly is a real target and must be enumerated, not
+            // silently treated as a container with nothing worth finding inside it.
+            True("Enumerate finds a digit-named plain skin", keys.Contains("skins/2024"));
+            True("Enumerate finds a digit-named plain mode", keys.Contains("mods/7"));
+
+            // A genuine Workshop container -- digit-named, and carrying no schema of its own -- must
+            // still be looked inside rather than listed itself. The fix for #33 must not turn every
+            // digit-named folder into a target; only ones that ship the schema file directly.
+            False("Enumerate does not list a genuine Workshop container by its own key",
+                  keys.Contains("skins/123456"));
+
+            Same("Enumerate found exactly the six fixtures", found.Count.ToString(), "6");
 
             // Skins first, then modes; that ordering is what keeps a settings list stable.
             True("Enumerate returns skins before modes",
-                 found.Count == 4 && found[0].Kind == SelectorKind.Skin && found[3].Kind == SelectorKind.Mode);
+                 found.Count == 6 && found[0].Kind == SelectorKind.Skin && found[5].Kind == SelectorKind.Mode);
 
             foreach (Target t in found)
                 True("Enumerate's FolderPath for " + t.Key + " exists", Directory.Exists(t.FolderPath));
@@ -416,7 +431,7 @@ namespace AS2.ModApi.Tests
             False("Enumerate does not list a linked skin folder", keys.Contains("skins/Linked"));
             False("Enumerate does not descend through a mode's linked skins folder",
                   keys.Contains("mods/linkedmode/skins/Deep"));
-            Same("Enumerate still found exactly the four real fixtures", found.Count.ToString(), "4");
+            Same("Enumerate still found exactly the six real fixtures", found.Count.ToString(), "6");
         }
 
         /// <summary>
