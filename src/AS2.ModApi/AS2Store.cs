@@ -66,8 +66,10 @@ namespace AS2.ModApi
         /// <para>
         /// File.Replace is that swap and is preferred, because it also keeps a <c>.prev</c> copy of
         /// what was there. It fails across volumes and on some network paths, and the game folder is
-        /// somewhere the player chose, so there is a fallback: delete and rename. That fallback has
-        /// a real -- if tiny -- window where neither file exists, which is why it is second.
+        /// somewhere the player chose, so there is a fallback: rename the old file aside, move the
+        /// new one into place, then delete the aside copy. That still has a real -- if tiny -- window
+        /// where "path" itself does not exist, which is why it is second; but unlike a bare delete
+        /// then move, a failure partway through still has the old contents to restore from.
         /// </para>
         ///
         /// <para>Returns false rather than throwing. Losing a save is worth a log line, not a crash.</para>
@@ -104,8 +106,40 @@ namespace AS2.ModApi
                         "Atomic replace of " + path + " failed, falling back to a rename: "
                         + replaceFailed.Message);
 
-                    File.Delete(path);
-                    File.Move(temp, path);
+                    // Delete-then-move has a window where neither name holds the old contents, and
+                    // an exception from the move lands in that window: the outer catch would then
+                    // clean up "temp" as its usual best-effort tidying, and both the old save (already
+                    // deleted) and the new one (now deleted too) would be gone. Renaming the old file
+                    // aside instead of deleting it means that failure has something to fall back to.
+                    string backup = path + ".bak";
+                    try { if (File.Exists(backup)) File.Delete(backup); } catch { /* stale leftover; overwritten by the rename below */ }
+
+                    File.Move(path, backup);
+
+                    try
+                    {
+                        File.Move(temp, path);
+                    }
+                    catch (Exception moveFailed)
+                    {
+                        ModApiPlugin.Log.LogError(
+                            "Could not move the new " + path + " into place after setting the old one aside; "
+                            + "restoring it: " + moveFailed.Message);
+                        try
+                        {
+                            File.Move(backup, path);
+                        }
+                        catch (Exception restoreFailed)
+                        {
+                            ModApiPlugin.Log.LogError(
+                                "Could not restore " + path + " from its backup either; the previous save is "
+                                + "safe at " + backup + ": " + restoreFailed.Message);
+                        }
+                        try { if (File.Exists(temp)) File.Delete(temp); } catch { /* nothing left to try */ }
+                        return false;
+                    }
+
+                    try { File.Delete(backup); } catch { /* a leftover backup copy is not a failure worth reporting */ }
                     return true;
                 }
             }

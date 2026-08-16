@@ -28,6 +28,8 @@ namespace AS2.ModApi.Tests
                 WriteOverExistingKeepsTheContent();
                 WriteLeavesNoTempBehind();
                 WriteCreatesAMissingDirectory();
+                ReplaceFallbackSwapsInEvenWhenReplaceCannotBeUsed();
+                ReplaceFallbackFailureLeavesTheOldFileInPlace();
                 QuarantineMovesRatherThanDeletes();
                 QuarantineIsNullWhenThereIsNothingToMove();
                 QuarantineKeepsOnlyTheMostRecentFew();
@@ -82,6 +84,79 @@ namespace AS2.ModApi.Tests
             string p = Path.Combine(_dir, Path.Combine("nested", "deep.json"));
             True("WriteAtomic creates the folder it needs", AS2Store.WriteAtomic(p, "x"));
             Same("and the file is readable afterwards", AS2Store.Read(p), "x");
+        }
+
+        // ---- Regression: issue #32 -----------------------------------------------------------
+        //
+        // File.Replace is not available across volumes or on some network shares, which is exactly
+        // where the game folder can live, so WriteAtomic falls back to a rename. The two checks
+        // below force that fallback deliberately, by occupying the file names it needs with a
+        // directory rather than waiting for a second volume to reproduce the failure.
+
+        /// <summary>
+        /// The common case the fallback exists for: File.Replace cannot be used, but the rename
+        /// still gets the new contents in place and leaves nothing behind.
+        /// </summary>
+        private static void ReplaceFallbackSwapsInEvenWhenReplaceCannotBeUsed()
+        {
+            string p = Path_("cross-volume.json");
+            AS2Store.WriteAtomic(p, "first");
+
+            // File.Replace needs its own backup path free; occupying it with a directory is a
+            // reliable way to make File.Replace fail without a second volume or network share to
+            // reproduce the real case this fallback exists for.
+            string previous = p + ".prev";
+            Directory.CreateDirectory(previous);
+
+            try
+            {
+                True("WriteAtomic still succeeds by falling back to a rename", AS2Store.WriteAtomic(p, "second"));
+                Same("the new contents are what is on disk", AS2Store.Read(p), "second");
+                False("no .bak is left behind after a successful fallback", File.Exists(p + ".bak"));
+                False("no .tmp is left behind after a successful fallback", File.Exists(p + ".tmp"));
+            }
+            finally
+            {
+                try { Directory.Delete(previous, true); } catch { /* test fixture, not the file under test */ }
+            }
+        }
+
+        /// <summary>
+        /// The bug itself. The old fallback was `File.Delete(path); File.Move(temp, path)`, two
+        /// unguarded steps with a real window in which neither name held the player's data. A
+        /// failure landing in that window -- an AV lock, a transient sharing violation, a full disk
+        /// -- reached the outer catch, which deleted "temp" as its usual tidy-up, and the old save
+        /// (already deleted) and the new one (now deleted too) were both gone, while WriteAtomic
+        /// still returned false as if this were an ordinary write failure.
+        ///
+        /// This cannot force that exact race without a fault-injection hook the harness does not
+        /// have, so it exercises the property the fix buys instead: whatever stops the fallback from
+        /// finishing, the old file is renamed aside rather than deleted, so it is still there
+        /// afterwards, whether or not the swap itself could complete.
+        /// </summary>
+        private static void ReplaceFallbackFailureLeavesTheOldFileInPlace()
+        {
+            string p = Path_("mid-swap.json");
+            AS2Store.WriteAtomic(p, "the only copy");
+
+            string previous = p + ".prev";
+            Directory.CreateDirectory(previous); // forces File.Replace to fail, as above
+
+            string backup = p + ".bak";
+            Directory.CreateDirectory(backup);    // occupies the fallback's own rename-aside target
+
+            try
+            {
+                False("WriteAtomic reports failure rather than claiming a swap it could not finish",
+                      AS2Store.WriteAtomic(p, "would-be new contents"));
+                True("the old file is still there afterwards", File.Exists(p));
+                Same("and it still holds what it held before the attempt", AS2Store.Read(p), "the only copy");
+            }
+            finally
+            {
+                try { Directory.Delete(previous, true); } catch { /* test fixture, not the file under test */ }
+                try { Directory.Delete(backup, true); } catch { /* test fixture, not the file under test */ }
+            }
         }
 
         /// <summary>
