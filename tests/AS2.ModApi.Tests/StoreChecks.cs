@@ -28,6 +28,7 @@ namespace AS2.ModApi.Tests
                 WriteOverExistingKeepsTheContent();
                 WriteLeavesNoTempBehind();
                 WriteCreatesAMissingDirectory();
+                TheFallbackSwapRunsWhenReplaceCannot();
                 AFailedFallbackSwapKeepsTheOldContents();
                 QuarantineMovesRatherThanDeletes();
                 QuarantineIsNullWhenThereIsNothingToMove();
@@ -86,6 +87,47 @@ namespace AS2.ModApi.Tests
         }
 
         // ---- Regression: issue #32 -------------------------------------------------------------
+
+        /// <summary>
+        /// The fallback swap doing its job: File.Replace cannot run, and the write still lands.
+        ///
+        /// <para>
+        /// Occupying <c>.prev</c> with a directory is what makes File.Replace fail here. That is a
+        /// stand-in for the cross-volume and network-share cases the fallback really exists for,
+        /// which no test can arrange on one machine -- but it is also the honest shape of the
+        /// hazard, because an unwritable <c>.prev</c> is one of the things that makes File.Replace
+        /// fail in the field. The first fix for issue #32 moved the old file aside to <c>.prev</c>,
+        /// the very name already established as unavailable, so the fallback failed for the same
+        /// reason the primary path had and the write went nowhere. Hence <c>.bak</c>, and hence this
+        /// check, which fails against that first fix.
+        /// </para>
+        ///
+        /// <para>The technique comes from PR #34, which reached the same fix independently.</para>
+        /// </summary>
+        private static void TheFallbackSwapRunsWhenReplaceCannot()
+        {
+            string p = Path_("no-replace.json");
+            AS2Store.WriteAtomic(p, "first");
+
+            string previous = p + ".prev";
+            try { if (File.Exists(previous)) File.Delete(previous); } catch { }
+            Directory.CreateDirectory(previous);
+
+            try
+            {
+                ModApiPlugin.Log.Clear();
+                True("WriteAtomic still succeeds when File.Replace cannot run",
+                     AS2Store.WriteAtomic(p, "second"));
+                True("and it really did take the fallback", ModApiPlugin.Log.Mentions("falling back to a rename"));
+                Same("the new contents are what is on disk", AS2Store.Read(p), "second");
+                False("the fallback leaves no .bak behind", File.Exists(p + ".bak"));
+                False("the fallback leaves no .tmp behind", File.Exists(p + ".tmp"));
+            }
+            finally
+            {
+                try { Directory.Delete(previous, true); } catch { /* the fixture's own leftover */ }
+            }
+        }
 
         /// <summary>
         /// The fallback swap, failing in the middle, with the player's data on the line.
