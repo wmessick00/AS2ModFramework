@@ -28,6 +28,7 @@ namespace AS2.ModApi.Tests
                 WriteOverExistingKeepsTheContent();
                 WriteLeavesNoTempBehind();
                 WriteCreatesAMissingDirectory();
+                AFailedFallbackSwapKeepsTheOldContents();
                 QuarantineMovesRatherThanDeletes();
                 QuarantineIsNullWhenThereIsNothingToMove();
                 QuarantineKeepsOnlyTheMostRecentFew();
@@ -82,6 +83,56 @@ namespace AS2.ModApi.Tests
             string p = Path.Combine(_dir, Path.Combine("nested", "deep.json"));
             True("WriteAtomic creates the folder it needs", AS2Store.WriteAtomic(p, "x"));
             Same("and the file is readable afterwards", AS2Store.Read(p), "x");
+        }
+
+        // ---- Regression: issue #32 -------------------------------------------------------------
+
+        /// <summary>
+        /// The fallback swap, failing in the middle, with the player's data on the line.
+        ///
+        /// <para>
+        /// The fallback used to delete the old file and then rename the new one over it. A failure
+        /// between those two steps left nothing: the old file was already gone, and the caller's
+        /// cleanup then deleted the temp file that held the new contents. WriteAtomic reported an
+        /// ordinary failed write, so the log said nothing about the loss either.
+        /// </para>
+        ///
+        /// <para>
+        /// The fixture holds the temp file open, sharing read and write but not delete. That is
+        /// enough to make File.Replace fail -- it needs delete access on the file it moves in --
+        /// and then to make the fallback's own rename of that same file fail too, which is exactly
+        /// the mid-swap failure the old code could not survive. Nothing holds the real file, so the
+        /// step before it succeeds and the write really does get halfway.
+        /// </para>
+        /// </summary>
+        private static void AFailedFallbackSwapKeepsTheOldContents()
+        {
+            string p = Path_("mid-swap.json");
+            AS2Store.WriteAtomic(p, "the player's data");
+
+            string temp = p + ".tmp";
+            File.WriteAllText(temp, "");
+
+            bool wrote;
+            ModApiPlugin.Log.Clear();
+            using (new FileStream(temp, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+            {
+                wrote = AS2Store.WriteAtomic(p, "the replacement");
+            }
+
+            if (ModApiPlugin.Log.Mentions("falling back to a rename"))
+            {
+                False("a write that could not finish reports failure", wrote);
+                True("the old file is still in its own name", File.Exists(p));
+                Same("and it still holds every byte the player had", AS2Store.Read(p), "the player's data");
+            }
+            else
+            {
+                Skip("The mid-swap failure did not reproduce: File.Replace got past a temp file held "
+                   + "open without delete sharing, so the fallback never ran on this machine.");
+            }
+
+            try { File.Delete(temp); } catch { /* the fixture's own leftover, not the code's */ }
         }
 
         /// <summary>

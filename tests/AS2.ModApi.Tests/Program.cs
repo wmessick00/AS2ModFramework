@@ -45,6 +45,7 @@ namespace AS2.ModApi.Tests
                 EnumerateFindsEveryFolderShape();
                 NegativeCasingResultsAreNotCached();
                 LinkedFoldersAreNotFollowed();
+                DigitNamedFoldersAreTargetsToo();
 
                 SurfaceChecks.Run();
                 StoreChecks.Run();
@@ -417,6 +418,43 @@ namespace AS2.ModApi.Tests
             False("Enumerate does not descend through a mode's linked skins folder",
                   keys.Contains("mods/linkedmode/skins/Deep"));
             Same("Enumerate still found exactly the four real fixtures", found.Count.ToString(), "4");
+        }
+
+        // ---- Regression: issue #33 -------------------------------------------------------------
+
+        /// <summary>
+        /// A skin or mode whose folder name happens to be all digits.
+        ///
+        /// Steam names a Workshop container after the item's numeric id, and CollectFrom read that
+        /// name as proof of what the folder was: it looked inside such a folder and never offered
+        /// the folder itself as a target. Nothing stops an author numbering a plain skin or mode
+        /// folder, though, and one that ships its schema directly rather than a level down was
+        /// dropped from every list Enumerate builds -- with no log line to say so.
+        ///
+        /// This runs after the link checks because it adds fixtures the earlier counts do not
+        /// expect.
+        /// </summary>
+        private static void DigitNamedFoldersAreTargetsToo()
+        {
+            MakeTarget("skins/2024");                 // a numbered local skin
+            MakeTarget("mods/7");                     // a numbered mode
+            MakeTarget("mods/7/skins/Numbered");      // and a skin dedicated to it
+
+            List<Target> found = TargetResolver.Enumerate(Schema);
+            var keys = new List<string>();
+            foreach (Target t in found) keys.Add(t.Key);
+
+            True("Enumerate finds a skin whose folder name is all digits", keys.Contains("skins/2024"));
+            True("Enumerate finds a mode whose folder name is all digits", keys.Contains("mods/7"));
+            True("Enumerate still walks a digit-named mode's own skins folder",
+                 keys.Contains("mods/7/skins/Numbered"));
+
+            // The reading this replaces has to keep working. A real Workshop container ships no
+            // schema of its own, so it is offered, rejected and never listed, and the item one
+            // level inside it is still found.
+            True("Enumerate still descends into a Workshop container",
+                 keys.Contains("skins/123456/FromWorkshop"));
+            False("Enumerate does not list the Workshop container itself", keys.Contains("skins/123456"));
         }
 
         /// <summary>
