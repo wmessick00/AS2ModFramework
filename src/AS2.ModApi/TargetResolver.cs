@@ -359,6 +359,13 @@ namespace AS2.ModApi
         /// does not arrive through <see cref="SafeSubdirectories"/>: skins\, mods\ and a mode's own
         /// skins\ are all composed rather than listed. KeyForFolder would refuse whatever came back
         /// anyway, but only after this had already walked somebody else's disk.
+        ///
+        /// An all-digit name is not by itself proof of a Workshop container: nothing stops a plain
+        /// local skin or mode from being named "2024" by whoever made it, and that folder ships
+        /// <paramref name="fileName"/> directly rather than inside a subfolder the way a Workshop
+        /// item does. So a digit-named folder is only treated as a container when it actually lacks
+        /// the file being looked for; when it has one, it is a real target and is considered in
+        /// place, the same as any other folder here.
         /// </summary>
         private static List<string> CollectFrom(string containerDir, SelectorKind kind, string fileName,
                                                 List<Target> into, HashSet<string> seen)
@@ -376,7 +383,7 @@ namespace AS2.ModApi
             foreach (string dir in SafeSubdirectories(containerDir))
             {
                 string name = new DirectoryInfo(dir).Name;
-                if (WorkshopContainer.IsMatch(name))
+                if (WorkshopContainer.IsMatch(name) && !File.Exists(Path.Combine(dir, fileName)))
                 {
                     foreach (string inner in SafeSubdirectories(dir))
                     {
