@@ -351,9 +351,18 @@ namespace AS2.ModApi
         }
 
         /// <summary>
-        /// Scans one container directory a single level deep, descending into all-digit Workshop
-        /// containers. Returns every candidate folder inspected (not just the matches), so callers
-        /// can walk further down.
+        /// Scans one container directory a single level deep, and one level deeper again through
+        /// all-digit Workshop containers. Returns every candidate folder inspected (not just the
+        /// matches), so callers can walk further down.
+        ///
+        /// An all-digit name is a hint and not a verdict. Steam names a Workshop container after the
+        /// item's numeric id, but nothing stops an author naming a plain skin or mode folder
+        /// "2024" or "7", and this once read that name as "container" and looked only inside --
+        /// so such a folder never reached <see cref="Consider"/> at all and vanished from every
+        /// list, silently. A digit-named folder is therefore offered as a target and then descended
+        /// into as well. Offering a real Workshop container costs one File.Exists that comes back
+        /// false, because a container carries no schema of its own; the name alone cannot tell the
+        /// two apart, but the file can.
         ///
         /// The container itself is checked for being a link because it is the one path here that
         /// does not arrive through <see cref="SafeSubdirectories"/>: skins\, mods\ and a mode's own
@@ -375,19 +384,17 @@ namespace AS2.ModApi
 
             foreach (string dir in SafeSubdirectories(containerDir))
             {
-                string name = new DirectoryInfo(dir).Name;
-                if (WorkshopContainer.IsMatch(name))
-                {
-                    foreach (string inner in SafeSubdirectories(dir))
-                    {
-                        inspected.Add(inner);
-                        Consider(inner, kind, fileName, into, seen);
-                    }
-                    continue;
-                }
-
                 inspected.Add(dir);
                 Consider(dir, kind, fileName, into, seen);
+
+                string name = new DirectoryInfo(dir).Name;
+                if (!WorkshopContainer.IsMatch(name)) continue;
+
+                foreach (string inner in SafeSubdirectories(dir))
+                {
+                    inspected.Add(inner);
+                    Consider(inner, kind, fileName, into, seen);
+                }
             }
             return inspected;
         }
