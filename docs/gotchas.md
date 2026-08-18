@@ -121,6 +121,34 @@ bug above wearing a different hat. Issue #16.
 Covered by `ConcurrencyChecks.RegisteringWhileDrawingDoesNotThrow` in
 `tests/AS2.ModApi.Tests`, which races a registering thread against a walking one.
 
+### Every `AS2Ui.BeginScroll` needs an `EndScroll` on every path out
+
+IMGUI keeps one clip stack for the whole process, so `AS2Ui` can hold only one scroll view open
+however many mods draw. Each mod draws from its own `OnGUI`, and Unity calls those in a fixed order
+inside one frame. A mod whose `OnGUI` returns between `BeginScroll` and `EndScroll` therefore leaves
+a view open that nothing closes — and it needs no exception to do it, because an early `return` on
+some branch is enough.
+
+That used to cost every other mod its scrolling. The bookkeeping was one global depth counter, and a
+`BeginScroll` that arrived while the counter stood was read as nesting and refused a
+`GUI.BeginScrollView` of its own. The self-heal only ran when the frame number moved on, so a mod
+that leaked at the top of every frame re-leaked before anybody else could heal it. Issue #38.
+
+`ScrollTurns` now gives the view an owner: the calling assembly, which `BeginScroll` reads with
+`Assembly.GetCallingAssembly()`. A `BeginScroll` from a different mod can only mean the owner never
+closed its view, so the owner's turn is dropped, the warning names the owner, and the new caller gets
+a real scroll view. An `EndScroll` from a mod that does not hold the view is ignored. A mod can now
+break only its own scrolling.
+
+Two things follow for anyone editing `AS2Ui`. Keep `BeginScroll` and `EndScroll` out of the inliner —
+both carry `[MethodImpl(MethodImplOptions.NoInlining)]`, because `GetCallingAssembly` has to see the
+mod rather than `AS2.ModApi`. And do not add a `GUI.EndScrollView` to the drop path: the owner's
+`OnGUI` has already returned, Unity resets the clip stack between `OnGUI` calls, and popping anyway
+would take a control off some other mod's stack.
+
+Covered by `ScrollChecks` in `tests/AS2.ModApi.Tests`, which plays out a leaking mod against a
+tidy one.
+
 ### Read an event field once, into a local, before you raise it
 
 The same mod that registers a Mod Menu entry off a worker thread unsubscribes from an `AS2Events`
