@@ -229,6 +229,12 @@ turns both off, sizes the view so the horizontal range is exactly zero, and `End
 game's own bar instead: a pale square thumb, the same size however long the list is, on a track one
 shade lighter than the panel. `AS2ModMenu` is the worked example.
 
+**Pair `BeginScroll` with `EndScroll` on every path out of your `OnGUI`**, including the early
+returns. There is one scroll view for the whole process, because IMGUI has one clip stack, and it
+belongs to whichever mod opened it. `AS2Ui` names the mod in the log and hands the next caller a
+view of its own, so a leak costs you your own scrolling and nobody else's — see
+[docs/gotchas.md](gotchas.md#every-as2uibeginscroll-needs-an-endscroll-on-every-path-out).
+
 A boolean gets a **checkbox, not a two-stop slider** — that is what the game does for Autofind Music,
 Vsync and the scoreboard toggles, and a slider that only moves between two positions reads as broken.
 `AS2Ui.ToggleRow(row, label, value)` draws the whole row; `AS2Ui.Toggle(rect, value)` is the bare

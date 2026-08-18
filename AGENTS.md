@@ -54,10 +54,12 @@ referencing the built DLL, so they cannot drift from what ships, and neither nee
 The first compiles the production sources in two groups.
 
 **Game-free by construction:** `TargetResolver.cs`, `PathGuard.cs`, `Str.cs`, `SelectorKind.cs`,
-`MessageTable.cs`, `AS2Store.cs` and `ModMenuRegistry.cs`. That is why `Str` and `SelectorKind` sit
-in their own files, and why the Mod Menu's registry sits apart from the panel that draws it: a wrong
-message arity breaks the *game's* listeners, a wrong write loses a player's data, and an unlocked
-list mutation shuts the shared hub — and none of those should need a launch to catch.
+`MessageTable.cs`, `AS2Store.cs`, `ModMenuRegistry.cs` and `ScrollTurns.cs`. That is why `Str` and
+`SelectorKind` sit in their own files, why the Mod Menu's registry sits apart from the panel that
+draws it, and why the scroll view's arbitration sits apart from the IMGUI that draws it: a wrong
+message arity breaks the *game's* listeners, a wrong write loses a player's data, an unlocked list
+mutation shuts the shared hub, and an unowned scroll view stops every other mod scrolling — and none
+of those should need a launch to catch.
 
 **Behind shims:** `AS2Events.cs` and `Patches.cs`, which do reach for the game. `Shims.cs` stands in
 for what they touch — an empty `LuaInterface.Lua`, the game statics `CurrentKey` reads, and enough
