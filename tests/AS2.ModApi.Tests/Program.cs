@@ -50,6 +50,7 @@ namespace AS2.ModApi.Tests
                 SurfaceChecks.Run();
                 StoreChecks.Run();
                 ConcurrencyChecks.Run();
+                ScrollChecks.Run();
                 PatchChecks.Run();
             }
             catch (Exception e)
