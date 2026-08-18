@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Reflection;
+using System.Runtime.CompilerServices;
 using HarmonyLib;
 using UnityEngine;
 
@@ -955,19 +956,26 @@ namespace AS2.ModApi
         private static readonly int ScrollbarHash = "AS2UiScrollbar".GetHashCode();
 
         /// <summary>
-        /// The scroll view <see cref="EndScroll"/> has to finish, so it can close the same view it
-        /// opened and put the bar beside the same body.
+        /// Whose turn the one shared scroll view is.
         ///
-        /// _depth counts calls rather than views, and _active says whether the outermost call really
-        /// opened one. GUI.BeginScrollView and GUI.EndScrollView must balance exactly or Unity logs
-        /// for the rest of the session, and every entry point here is allowed to give up and draw
-        /// nothing -- so "did we begin" cannot be assumed from "was Begin called".
+        /// IMGUI keeps one clip stack, so only one view can be open however many mods draw. That
+        /// makes the bookkeeping shared state, and shared state is what one mod can break for every
+        /// other mod: a mod whose OnGUI returned between BeginScroll and EndScroll used to cost
+        /// every mod drawn after it in that frame its own scroll view. That shipped once, as
+        /// issue #38.
+        ///
+        /// <see cref="ScrollTurns"/> holds those rules away from Unity, so tests\AS2.ModApi.Tests
+        /// drives them cold. The caller token is the mod's own assembly, which is what lets a
+        /// warning name the mod that left a view open.
         /// </summary>
-        private static int _scrollDepth;
-        private static bool _scrollActive;
+        private static readonly ScrollTurns Turns = new ScrollTurns();
+
+        /// <summary>
+        /// The body and the content height <see cref="EndScroll"/> measures the scrollbar against,
+        /// so the bar lands beside the same body the open call was given.
+        /// </summary>
         private static Rect _scrollBody;
         private static float _scrollContent;
-        private static int _scrollFrame;
 
         /// <summary>
         /// Opens a scrolling list over <paramref name="body"/> and returns the rect to lay the rows
@@ -988,6 +996,7 @@ namespace AS2.ModApi
         /// one wheel tick then shunts the whole list sideways. Equal widths make the horizontal range
         /// exactly zero, so there is nothing to scroll to and nothing to draw a bar for.
         /// </summary>
+        [MethodImpl(MethodImplOptions.NoInlining)]   // GetCallingAssembly must see the mod, not us
         public static Rect BeginScroll(Rect body, ref Vector2 scroll, float contentHeight)
         {
             float gutter = ScrollGutter * Unit;
@@ -995,25 +1004,13 @@ namespace AS2.ModApi
 
             if (NoGuiContext("AS2Ui.BeginScroll")) return rows;
 
-            // A caller that threw between Begin and End left the count standing. Frames are the only
-            // way to tell that from a legitimately open view, since several IMGUI events run inside
-            // one frame; healing on the next frame costs at most the rest of the broken one.
-            if (_scrollDepth > 0 && _scrollFrame != Time.frameCount)
-            {
-                _scrollDepth = 0;
-                _scrollActive = false;
-                WarnOnce("AS2Ui.BeginScroll found an unfinished scroll view from an earlier frame and "
-                       + "dropped it. A panel most likely threw between BeginScroll and EndScroll.");
-            }
+            // Who is asking, so that a view left open can be attributed to the mod that left it, and
+            // so that one mod's leak cannot refuse the next mod a scroll view. See ScrollTurns.
+            ScrollBegin turn = Turns.Begin(Assembly.GetCallingAssembly(), Time.frameCount);
+            if (turn.Warning != null) WarnOnce(turn.Warning);
+            if (!turn.Open) return rows;
 
-            _scrollFrame = Time.frameCount;
-            _scrollDepth++;
-
-            if (_scrollDepth > 1)
-            {
-                WarnOnce("AS2Ui.BeginScroll does not nest; the inner list will not scroll.");
-                return rows;
-            }
+            bool opened = false;
 
             try
             {
@@ -1027,15 +1024,18 @@ namespace AS2.ModApi
                                              GUIStyle.none, GUIStyle.none);
                 scroll.x = 0f;
 
-                _scrollActive = true;
+                opened = true;
                 _scrollBody = body;
                 _scrollContent = rows.height;
             }
             catch (Exception ex)
             {
-                _scrollActive = false;
                 WarnOnce("AS2Ui.BeginScroll failed: " + ex.Message);
             }
+
+            // Told either way: EndScroll must not call GUI.EndScrollView for a view that never
+            // opened, or Unity logs about the imbalance for the rest of the session.
+            Turns.Opened(opened);
 
             return rows;
         }
@@ -1044,19 +1044,12 @@ namespace AS2.ModApi
         /// Closes the list <see cref="BeginScroll"/> opened and draws the scrollbar beside it,
         /// updating <paramref name="scroll"/> when the player drags the thumb.
         /// </summary>
+        [MethodImpl(MethodImplOptions.NoInlining)]   // GetCallingAssembly must see the mod, not us
         public static void EndScroll(ref Vector2 scroll)
         {
-            if (_scrollDepth == 0)
-            {
-                WarnOnce("AS2Ui.EndScroll was called without a matching BeginScroll, so it did nothing.");
-                return;
-            }
-
-            _scrollDepth--;
-            if (_scrollDepth > 0) return;
-
-            if (!_scrollActive) return;
-            _scrollActive = false;
+            ScrollEnd turn = Turns.End(Assembly.GetCallingAssembly());
+            if (turn.Warning != null) WarnOnce(turn.Warning);
+            if (!turn.Close) return;
 
             try
             {

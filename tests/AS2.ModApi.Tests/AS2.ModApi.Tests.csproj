@@ -49,6 +49,13 @@
     <Compile Include="..\..\src\AS2.ModApi\MessageTable.cs"   Link="Production\MessageTable.cs" />
     <!-- Atomic writes and quarantine. Pure file work, so it needs no game to exercise. -->
     <Compile Include="..\..\src\AS2.ModApi\AS2Store.cs"       Link="Production\AS2Store.cs" />
+    <!--
+      Whose turn the one shared scroll view is. AS2Ui itself is IMGUI from end to end and can never
+      be compiled here, so the rules that decide what one mod's unclosed view costs every other mod
+      sit in their own file. That is the same split as Str and SelectorKind above. See issue #38 and
+      ScrollChecks.cs.
+    -->
+    <Compile Include="..\..\src\AS2.ModApi\ScrollTurns.cs"    Link="Production\ScrollTurns.cs" />
 
     <!--
       The two concurrency fixes that shipped as bugs first, and the patch registration behind them.
