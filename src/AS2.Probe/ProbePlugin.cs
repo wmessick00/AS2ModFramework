@@ -116,7 +116,13 @@ namespace AS2.Probe
                 sb.AppendLine();
             }
 
-            string path = Path.Combine(Paths.GameRootPath, Path.Combine("AS2ModLoader", "probe-dump.txt"));
+            // Create the folder first. The probe can run on an install where AS2ModLoader is not
+            // there yet, and File.WriteAllText throws DirectoryNotFoundException on a missing
+            // folder -- which Awake() catches, so the one file this tool exists to write is lost.
+            string dir = Path.Combine(Paths.GameRootPath, "AS2ModLoader");
+            if (!Directory.Exists(dir)) Directory.CreateDirectory(dir);
+
+            string path = Path.Combine(dir, "probe-dump.txt");
             File.WriteAllText(path, sb.ToString(), Encoding.UTF8);
             Logger.LogInfo("Member dump written to " + path);
         }
