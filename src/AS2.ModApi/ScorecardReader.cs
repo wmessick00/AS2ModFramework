@@ -28,7 +28,6 @@ namespace AS2.ModApi
         private static bool _resolved;
         private static bool _usable;
 
-        private static FieldInfo _finalScore;
         private static FieldInfo _songJustScored;
         private static FieldInfo _songSeconds;
         private static FieldInfo _greysHit;
@@ -104,7 +103,9 @@ namespace AS2.ModApi
                     return;
                 }
 
-                _finalScore = AccessTools.Field(t, "finalScore");
+                // ScorecardFinal.finalScore is deliberately not read. The score comes from the
+                // SendingRideScore broadcast, which is authoritative, so Read() takes it as a
+                // parameter and the field would only be a second, later answer to the same question.
                 _songJustScored = AccessTools.Field(t, "songJustScored");
                 _songSeconds = AccessTools.Field(t, "songSeconds");
                 _greysHit = AccessTools.Field(t, "greysHit");
