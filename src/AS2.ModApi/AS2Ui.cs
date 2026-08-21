@@ -951,7 +951,7 @@ namespace AS2.ModApi
         /// has to overhang the rail for the shape to say "handle".
         /// </para>
         /// </summary>
-        public const float TrackThickness = 8f;
+        public const float TrackThickness = 12f;
 
         private static readonly int ScrollbarHash = "AS2UiScrollbar".GetHashCode();
 
