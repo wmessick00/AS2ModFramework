@@ -1,13 +1,10 @@
 namespace AS2.ModApi
 {
-    /// <summary>
-    /// Small .NET 3.5 gap-fillers. The game runs Unity 2017's legacy Mono profile, so anything
-    /// added in .NET 4 is unavailable -- no string.IsNullOrWhiteSpace, no Task, no ValueTuple.
-    ///
-    /// Kept in its own file, away from ModApiPlugin, so that the path and key logic which depends
-    /// on it can be compiled into the test project without dragging in BepInEx and Unity. See
-    /// tests/AS2.ModApi.Tests.
-    /// </summary>
+    /// <summary>Small .NET 3.5 gap-fillers</summary>
+    // Unity 2017's legacy Mono profile, so nothing added in .NET 4 exists here
+    // No string.IsNullOrWhiteSpace, no Task, no ValueTuple
+    // Its own file, away from ModApiPlugin, so the path and key logic compiles into the test
+    // project without dragging in BepInEx and Unity (see tests/AS2.ModApi.Tests)
     internal static class Str
     {
         public static bool IsBlank(string s)

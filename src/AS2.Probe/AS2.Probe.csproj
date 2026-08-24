@@ -3,13 +3,13 @@
   <!--
     A development probe, not a shipped component.
 
-    It answers three questions in a single game launch:
-      1. Does BepInEx load plugins at all when started by the community patch's Doorstop 3.4.1?
-      2. Does a Harmony detour actually fire on Unity 2017.4's legacy Mono x64?
+    Answers three questions in one game launch:
+      1. Does BepInEx load plugins at all under the community patch's Doorstop 3.4.1?
+      2. Does a Harmony detour fire on Unity 2017.4's legacy Mono x64?
       3. What are the real member names on the types AS2.ModApi needs to hook?
 
-    Everything it touches on the game side is resolved by name through AccessTools, so it takes no
-    compile-time dependency on Assembly-CSharp and cannot fail to build because a type is internal.
+    Everything on the game side resolves by name through AccessTools, so it takes no compile-time
+    dependency on Assembly-CSharp and cannot fail to build because a type is internal.
   -->
 
   <PropertyGroup>

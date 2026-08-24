@@ -1,35 +1,19 @@
 namespace AS2.ModApi
 {
-    /// <summary>
-    /// What this framework will tell a mod about a song.
-    ///
-    /// The game has its own `Song` class and the bridge receives one, but that object never leaves
-    /// <see cref="MessengerBridge"/>. Two reasons, and the second is the one that matters.
-    ///
-    /// <para>
-    /// It keeps the game events read-only in fact rather than by convention. `Song` is a reference
-    /// type whose every member is a public mutable field, so handing one to a subscriber would hand
-    /// it a writeable view of the game's state. A copy cannot be written back through.
-    /// </para>
-    ///
-    /// <para>
-    /// It also keeps a community patch update from breaking the event. The framework resolves game
-    /// members by name and tolerates one going missing; a game type in a public signature would
-    /// instead cost a compile break in every downstream mod. See the note on AccessTools at the top
-    /// of Patches.cs.
-    /// </para>
-    ///
-    /// <para>
-    /// A struct with get-only properties rather than a class: there is no null to check, and no
-    /// setter to write. An absent song is a default value whose <see cref="Key"/> is null.
-    /// </para>
-    /// </summary>
+    /// <summary>What this framework tells a mod about a song</summary>
+    // The game's own Song reaches the bridge and never leaves it. Two reasons:
+    // Read-only in fact, not by convention -- Song's every member is a public mutable field, so
+    // handing one over hands out a writeable view of the game's state
+    // A patch update then cannot break the event. Game members resolve by name and tolerate one
+    // going missing, where a game type in a public signature costs a compile break in every mod
+    // A struct with get-only properties: no null to check, no setter to write
+    // Why the copies, in full: see the RideResult and SongInfo wiki page
     public struct SongInfo
     {
-        /// <summary>Song title as the game holds it, or null.</summary>
+        /// <summary>Song title as the game holds it, or null</summary>
         public string Title { get; }
 
-        /// <summary>Artist name, or null. The game keeps this on a separate `Artist` object.</summary>
+        /// <summary>Artist name, or null. The game keeps this on a separate `Artist` object</summary>
         public string Artist { get; }
 
         /// <summary>
@@ -46,10 +30,10 @@ namespace AS2.ModApi
         /// </summary>
         public string Identifier { get; }
 
-        /// <summary>Song length in seconds, or 0 when the game has not worked it out yet.</summary>
+        /// <summary>Song length in seconds, or 0 when the game has not worked it out yet</summary>
         public float DurationSeconds { get; }
 
-        /// <summary>True when this is a YouTube stream rather than a local file.</summary>
+        /// <summary>True when this is a YouTube stream rather than a local file</summary>
         public bool IsYouTube { get; }
 
         internal SongInfo(string title, string artist, string path, string identifier,
@@ -80,7 +64,7 @@ namespace AS2.ModApi
             }
         }
 
-        /// <summary>"Artist - Title", or whichever half exists, or the path.</summary>
+        /// <summary>"Artist - Title", or whichever half exists, or the path</summary>
         public string Display
         {
             get

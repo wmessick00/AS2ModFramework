@@ -1,17 +1,16 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <!--
-    Cold checks for the doorstop_config.ini rewrite in AS2.Bootstrap, per the policy in AGENTS.md:
-    anything that does not truly need the game running should not need a launch to verify.
+    Cold checks for the doorstop_config.ini rewrite in AS2.Bootstrap. Anything that does not truly
+    need the game running should not need a launch to verify.
 
-    This project exists separately from tests\AS2.ModApi.Tests because the two cover different
-    assemblies and fake different things. It shares the assertions through tests\Check.cs and
-    nothing else.
+    Separate from tests\AS2.ModApi.Tests because the two cover different assemblies and fake
+    different things. It shares the assertions through tests\Check.cs and nothing else.
 
-    AS2.Bootstrap is the easiest thing in the repo to test cold, and was the last to get tests. It
-    references mscorlib and System and nothing else, deliberately, because it runs before Unity has
-    registered its internal calls. So the two files below compile here with no shim at all. What they
-    do need is a real disk, which they get in the temp folder.
+    AS2.Bootstrap is the easiest thing in the repo to check cold, and was the last to get checks. It
+    references mscorlib and System and nothing else, because it runs before Unity has registered its
+    internal calls. So the two files below compile here with no shim at all. What they do need is a
+    real disk, which they get in the temp folder.
 
     As in the other test project, this compiles the real source files rather than referencing the
     built DLL, so the checks cannot drift from what ships. The build output is net48 while the real
@@ -26,21 +25,22 @@
     <AssemblyName>AS2.Bootstrap.Tests</AssemblyName>
     <RootNamespace>AS2.Bootstrap.Tests</RootNamespace>
     <!--
-      Bootstrap.Main is doorstop's entry point: the patch's Doorstop 3.4.1 resolves the descriptor
-      "*:Main", which is the entire reason that method is named that. Linking the file therefore
-      gives this project two Mains, and the compiler needs telling which one it launches. Naming the
-      test one here is also a check of sorts: the day Bootstrap.Main goes away, so does the reason
-      AS2.Bootstrap exists.
+      Bootstrap.Main is doorstop's entry point. The patch's Doorstop 3.4.1 resolves the descriptor
+      "*:Main", which is the whole reason that method is named that.
+
+      Linking the file gives this project two Mains, so the compiler needs telling which one it
+      launches. Naming the test one here is a check of sorts: the day Bootstrap.Main goes away, so
+      does the reason AS2.Bootstrap exists.
     -->
     <StartupObject>AS2.Bootstrap.Tests.Program</StartupObject>
-    <!-- The linked sources are net35-era and use no XML doc IDs this project needs to resolve. -->
+    <!-- The linked sources are net35-era and use no XML doc IDs this project resolves. -->
     <NoWarn>$(NoWarn);1591;0169</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>
     <!--
       The production code under test. BootLog is here because Bootstrap.cs calls it, not because it
-      is under test: with no Init it writes nothing, which is exactly what a test wants.
+      is under test. With no Init it writes nothing, which is what a check wants.
     -->
     <Compile Include="..\..\src\AS2.Bootstrap\Bootstrap.cs" Link="Production\Bootstrap.cs" />
     <Compile Include="..\..\src\AS2.Bootstrap\BootLog.cs"   Link="Production\BootLog.cs" />

@@ -3,44 +3,18 @@ using UnityEngine;
 
 namespace AS2.ModApi
 {
-    /// <summary>
-    /// What the game is doing, as events.
-    ///
-    /// <see cref="AS2Events"/> covers the menus and the Lua states, and it is built from Harmony
-    /// postfixes. This class covers gameplay, and it is built from nothing at all: the game
-    /// broadcasts these on its own event bus already, so the framework only listens. There is no
-    /// patch behind any event here.
-    ///
-    /// <para>
-    /// <b>These events are read-only, and that is enforced rather than promised.</b> No payload is a
-    /// game object -- a subscriber gets <see cref="SongInfo"/> and <see cref="RideResult"/>, which
-    /// are immutable copies, so there is nothing to write back through. The framework itself calls
-    /// no game setter, writes no game field and broadcasts no message, and
-    /// tools/verify-invariants.ps1 checks all of that against the built DLL before a release is
-    /// cut. A score can be read here and cannot be set here.
-    /// </para>
-    ///
-    /// <para>
-    /// <b>The set is closed.</b> There is no Subscribe(string) and no overload anywhere that takes a
-    /// message name, so the events below are the whole supported surface. Adding one means editing
-    /// MessageTable, MessengerBridge and this file. A mod is of course free to call the game's own
-    /// Messenger directly -- that class is public and the framework cannot change it -- but then it
-    /// owns the risk described on <see cref="MessageTable"/>, where a wrong argument count breaks
-    /// the game's listeners rather than the mod's.
-    /// </para>
-    ///
-    /// <para>
-    /// <b>Subscribe from Awake, on the main thread.</b> The first `+=` on an event is what subscribes
-    /// the framework to the underlying broadcast, and the game's AddListener writes an unguarded
-    /// Dictionary. Handlers then run on the game thread. Unsubscribing is supported and cheap, but it
-    /// never detaches the framework from the game -- see MessengerBridge for why that is deliberate.
-    /// </para>
-    ///
-    /// <para>
-    /// Subscribers are isolated exactly as in <see cref="AS2Events"/>: one handler that throws is
-    /// logged and swallowed, and the others still run.
-    /// </para>
-    /// </summary>
+    /// <summary>What the game is doing, as events</summary>
+    // No Harmony patch behind any of these. The game broadcasts them already, so this only listens
+    // Read-only, and enforced rather than promised: no payload is a game object, only SongInfo and
+    // RideResult copies, and tools/verify-invariants.ps1 checks the built DLL calls no game setter
+    // The set is closed. There is no overload taking a message name, so adding one means editing
+    // MessageTable, MessengerBridge and this file
+    // Subscribe from Awake on the main thread. The first += is what attaches the framework to the
+    // broadcast, and the game's AddListener writes an unguarded Dictionary
+    // Unsubscribing never detaches the framework from the game -- see MessengerBridge for why
+    // Subscribers are isolated: one handler that throws is logged, and the others still run
+    // The 26 events and what each one means: see the AS2GameEvents wiki page
+
     public static class AS2GameEvents
     {
         private static readonly object Gate = new object();
@@ -48,7 +22,7 @@ namespace AS2.ModApi
         // ---- Ride lifecycle --------------------------------------------------------------------
 
         private static Action _gameplayStarted;
-        /// <summary>A ride began. The highway is built and the player is about to surf.</summary>
+        /// <summary>A ride began. The highway is built and the player is about to surf</summary>
         public static event Action GameplayStarted
         {
             add { MessengerBridge.EnsureGameplayStart(); lock (Gate) _gameplayStarted += value; }
@@ -56,17 +30,11 @@ namespace AS2.ModApi
         }
 
         private static Action _rideEnded;
-        /// <summary>
-        /// A ride finished, by any route: the song ended, or the player chose End Song or Restart in
-        /// the pause menu. Prefer this over <see cref="SongEnded"/> when you want "the ride is over"
-        /// rather than "the audio ran out".
-        ///
-        /// <para>
-        /// This carries no score on purpose. It maps to the game's EndCleanup broadcast, which fires
-        /// after the scorecard is finalised but before the score is sent, and a mod that wants the
-        /// number should use <see cref="RideScored"/> instead of reaching for it here.
-        /// </para>
-        /// </summary>
+        /// <summary>A ride finished, by any route</summary>
+        // The song ended, or the player chose End Song or Restart. Prefer this over SongEnded for
+        // "the ride is over" rather than "the audio ran out"
+        // Carries no score on purpose: it maps to EndCleanup, which fires after the scorecard is
+        // finalised but before the score is sent. Use RideScored for the number
         public static event Action RideEnded
         {
             add { MessengerBridge.EnsureEndCleanup(); lock (Gate) _rideEnded += value; }
@@ -74,10 +42,9 @@ namespace AS2.ModApi
         }
 
         private static Action<RideResult> _rideScored;
-        /// <summary>
-        /// A ride was scored. This is the one moment the whole scorecard is valid, so it is the
-        /// moment to record a ride. It does not fire when the player quits a song early.
-        /// </summary>
+        /// <summary>A ride was scored</summary>
+        // The one moment the whole scorecard is valid, so the moment to record a ride
+        // Does not fire when the player quits a song early
         public static event Action<RideResult> RideScored
         {
             add { MessengerBridge.EnsureSendingRideScore(); lock (Gate) _rideScored += value; }
@@ -85,7 +52,7 @@ namespace AS2.ModApi
         }
 
         private static Action _paused;
-        /// <summary>The pause menu came up.</summary>
+        /// <summary>The pause menu came up</summary>
         public static event Action Paused
         {
             add { MessengerBridge.EnsurePausingGame(); lock (Gate) _paused += value; }
@@ -93,7 +60,7 @@ namespace AS2.ModApi
         }
 
         private static Action _resumed;
-        /// <summary>The player left the pause menu and the ride continues.</summary>
+        /// <summary>The player left the pause menu and the ride continues</summary>
         public static event Action Resumed
         {
             add { MessengerBridge.EnsureResumingGame(); lock (Gate) _resumed += value; }
@@ -103,7 +70,7 @@ namespace AS2.ModApi
         // ---- Song ------------------------------------------------------------------------------
 
         private static Action<SongInfo> _songChanged;
-        /// <summary>The current song changed. Fires in the menus, well before a ride starts.</summary>
+        /// <summary>The current song changed. Fires in the menus, well before a ride starts</summary>
         public static event Action<SongInfo> SongChanged
         {
             add { MessengerBridge.EnsureSongChanged(); lock (Gate) _songChanged += value; }
@@ -111,7 +78,7 @@ namespace AS2.ModApi
         }
 
         private static Action<SongInfo> _songAboutToChange;
-        /// <summary>The player picked a song and the game is about to load it.</summary>
+        /// <summary>The player picked a song and the game is about to load it</summary>
         public static event Action<SongInfo> SongAboutToChange
         {
             add { MessengerBridge.EnsureAboutToChangeSong(); lock (Gate) _songAboutToChange += value; }
@@ -119,7 +86,7 @@ namespace AS2.ModApi
         }
 
         private static Action _songStarted;
-        /// <summary>The audio began to play.</summary>
+        /// <summary>The audio began to play</summary>
         public static event Action SongStarted
         {
             add { MessengerBridge.EnsureSongStartedPlaying(); lock (Gate) _songStarted += value; }
@@ -127,7 +94,7 @@ namespace AS2.ModApi
         }
 
         private static Action _songEnded;
-        /// <summary>The audio ran out. See <see cref="RideEnded"/> for the other ways a ride stops.</summary>
+        /// <summary>The audio ran out. See <see cref="RideEnded"/> for the other ways a ride stops</summary>
         public static event Action SongEnded
         {
             add { MessengerBridge.EnsureSongEnded(); lock (Gate) _songEnded += value; }
@@ -137,14 +104,9 @@ namespace AS2.ModApi
         // ---- Scoring, tricks and traffic -------------------------------------------------------
 
         private static Action<float> _scoreUpdated;
-        /// <summary>
-        /// The running score, as a total. <b>This is the one to use.</b>
-        ///
-        /// <para>
-        /// It comes from ScoreManager.AddPoints, which computes the new total and broadcasts it, so
-        /// it matches the number on screen. It fires only while a ride is in progress.
-        /// </para>
-        /// </summary>
+        /// <summary>The running score, as a total. This is the one to use</summary>
+        // From ScoreManager.AddPoints, which computes the new total and broadcasts it, so it
+        // matches the number on screen. Fires only while a ride is in progress
         public static event Action<float> ScoreUpdated
         {
             add { MessengerBridge.EnsureScoreUpdated(); lock (Gate) _scoreUpdated += value; }
@@ -152,21 +114,12 @@ namespace AS2.ModApi
         }
 
         private static Action<float, int> _scoreChanged;
-        /// <summary>
-        /// One of the inputs to scoring, and almost certainly not what you want --
-        /// <see cref="ScoreUpdated"/> is.
-        ///
-        /// <para>
-        /// The first argument is a change, not a total, and it is a *partial* feed: Flyups and
-        /// TrickHUD broadcast this, ScoreManager listens to it, and ScoreManager also adds points
-        /// from OnTrafficCollected and OnAddPoints without ever passing through here. Adding these
-        /// up therefore produces a number well below the real score. It is exposed because it says
-        /// something the total does not -- that a trick or a floater just scored -- and not because
-        /// it can be accumulated.
-        /// </para>
-        ///
-        /// <para>The second argument is the player number, and it is 1-based.</para>
-        /// </summary>
+        /// <summary>One of the inputs to scoring, and almost certainly not what you want</summary>
+        // <see cref="ScoreUpdated"/> is. The first argument is a change, not a total, and it is a
+        // partial feed: ScoreManager also adds points from OnTrafficCollected and OnAddPoints
+        // without passing through here, so adding these up lands well below the real score
+        // Exposed because it says a trick or a floater just scored, not because it accumulates
+        // The second argument is the player number, 1-based
         public static event Action<float, int> ScoreChanged
         {
             add { MessengerBridge.EnsureScoreChanged(); lock (Gate) _scoreChanged += value; }
@@ -174,7 +127,7 @@ namespace AS2.ModApi
         }
 
         private static Action<int> _trickStarted;
-        /// <summary>A trick began. The argument is the game's trick id.</summary>
+        /// <summary>A trick began. The argument is the game's trick id</summary>
         public static event Action<int> TrickStarted
         {
             add { MessengerBridge.EnsureTrickStarted(); lock (Gate) _trickStarted += value; }
@@ -182,7 +135,7 @@ namespace AS2.ModApi
         }
 
         private static Action<int, int> _trickDone;
-        /// <summary>A trick completed: the trick id, then the points it earned.</summary>
+        /// <summary>A trick completed: the trick id, then the points it earned</summary>
         public static event Action<int, int> TrickDone
         {
             add { MessengerBridge.EnsureTrickDone(); lock (Gate) _trickDone += value; }
@@ -190,7 +143,7 @@ namespace AS2.ModApi
         }
 
         private static Action<float> _playerJumped;
-        /// <summary>The player jumped. The argument is the jump height.</summary>
+        /// <summary>The player jumped. The argument is the jump height</summary>
         public static event Action<float> PlayerJumped
         {
             add { MessengerBridge.EnsurePlayerJumped(); lock (Gate) _playerJumped += value; }
@@ -198,7 +151,7 @@ namespace AS2.ModApi
         }
 
         private static Action _playerLanded;
-        /// <summary>The player landed cleanly.</summary>
+        /// <summary>The player landed cleanly</summary>
         public static event Action PlayerLanded
         {
             add { MessengerBridge.EnsurePlayerLanded(); lock (Gate) _playerLanded += value; }
@@ -206,7 +159,7 @@ namespace AS2.ModApi
         }
 
         private static Action _playerCrashLanded;
-        /// <summary>The player landed badly.</summary>
+        /// <summary>The player landed badly</summary>
         public static event Action PlayerCrashLanded
         {
             add { MessengerBridge.EnsurePlayerCrashLanded(); lock (Gate) _playerCrashLanded += value; }
@@ -214,7 +167,7 @@ namespace AS2.ModApi
         }
 
         private static Action<int, int> _playerLandedWithPoints;
-        /// <summary>A jump finished and scored: the points, then the jump number.</summary>
+        /// <summary>A jump finished and scored: the points, then the jump number</summary>
         public static event Action<int, int> PlayerLandedWithPoints
         {
             add { MessengerBridge.EnsurePlayerLandedWithPoints(); lock (Gate) _playerLandedWithPoints += value; }
@@ -222,20 +175,11 @@ namespace AS2.ModApi
         }
 
         private static Action<int, int, Vector3> _trafficCollected;
-        /// <summary>
-        /// A block was collected: its type, its lane, then its world position.
-        ///
-        /// <para>
-        /// The Vector3 is the one Unity type in this class's payloads, and it is here because it is
-        /// a value type. A subscriber gets a copy of the position and can write nothing back through
-        /// it, so it does not weaken the read-only rule the way a game object would.
-        /// </para>
-        ///
-        /// <para>
-        /// This fires once per collected block, which is often. Keep the handler cheap and allocate
-        /// nothing in it.
-        /// </para>
-        /// </summary>
+        /// <summary>A block was collected: its type, its lane, then its world position</summary>
+        // The Vector3 is the one Unity type in any payload here, and only because it is a value
+        // type -- a subscriber gets a copy and can write nothing back through it
+        // Fires once per collected block, which is often. Keep the handler cheap and allocate
+        // nothing in it
         public static event Action<int, int, Vector3> TrafficCollected
         {
             add { MessengerBridge.EnsureTrafficCollected(); lock (Gate) _trafficCollected += value; }
@@ -243,7 +187,7 @@ namespace AS2.ModApi
         }
 
         private static Action<int, int, Vector3> _trafficMissed;
-        /// <summary>A block went by uncollected: its type, its lane, then its world position.</summary>
+        /// <summary>A block went by uncollected: its type, its lane, then its world position</summary>
         public static event Action<int, int, Vector3> TrafficMissed
         {
             add { MessengerBridge.EnsureTrafficMissed(); lock (Gate) _trafficMissed += value; }
@@ -253,11 +197,9 @@ namespace AS2.ModApi
         // ---- Lua diagnostics -------------------------------------------------------------------
 
         private static Action<string> _luaSkinError;
-        /// <summary>
-        /// A skin script failed. The game raises this from LuaController.LateUpdate, so a skin that
-        /// throws inside its own Update produces one of these per frame. Collapse repeats rather
-        /// than recording each one.
-        /// </summary>
+        /// <summary>A skin script failed</summary>
+        // Raised from LuaController.LateUpdate, so a skin that throws inside its own Update
+        // produces one of these per frame. Collapse repeats rather than recording each one
         public static event Action<string> LuaSkinError
         {
             add { MessengerBridge.EnsureLuaSkinError(); lock (Gate) _luaSkinError += value; }
@@ -265,7 +207,7 @@ namespace AS2.ModApi
         }
 
         private static Action<string> _luaModError;
-        /// <summary>A mode script failed. The same advice about repeats applies.</summary>
+        /// <summary>A mode script failed. The same advice about repeats applies</summary>
         public static event Action<string> LuaModError
         {
             add { MessengerBridge.EnsureLuaModError(); lock (Gate) _luaModError += value; }
@@ -273,7 +215,7 @@ namespace AS2.ModApi
         }
 
         private static Action<string> _luaScriptPrint;
-        /// <summary>A skin or mode script printed text.</summary>
+        /// <summary>A skin or mode script printed text</summary>
         public static event Action<string> LuaScriptPrint
         {
             add { MessengerBridge.EnsureLuaSkinPrintText(); lock (Gate) _luaScriptPrint += value; }
@@ -283,13 +225,10 @@ namespace AS2.ModApi
         // ---- Selection and navigation ----------------------------------------------------------
 
         private static Action _skinChanged;
-        /// <summary>
-        /// The active skin changed. This is not the same as
-        /// <see cref="AS2Events.SelectionChanged"/>: that one fires as the player moves the
-        /// highlight in the selector, and this one fires when the game actually adopts a skin,
-        /// including when something other than the selector sets it. Read the new value with
-        /// <see cref="AS2Events.CurrentKey"/>.
-        /// </summary>
+        /// <summary>The active skin changed</summary>
+        // Not the same as <see cref="AS2Events.SelectionChanged"/>, which fires as the player moves
+        // the highlight. This fires when the game adopts a skin, including from outside the selector
+        // Carries no payload -- read the new value with <see cref="AS2Events.CurrentKey"/>
         public static event Action SkinChanged
         {
             add { MessengerBridge.EnsureSkinChanged(); lock (Gate) _skinChanged += value; }
@@ -297,7 +236,7 @@ namespace AS2.ModApi
         }
 
         private static Action _modeChanged;
-        /// <summary>The active mode changed. The note on <see cref="SkinChanged"/> applies.</summary>
+        /// <summary>The active mode changed. The note on <see cref="SkinChanged"/> applies</summary>
         public static event Action ModeChanged
         {
             add { MessengerBridge.EnsureModeChanged(); lock (Gate) _modeChanged += value; }
@@ -305,10 +244,9 @@ namespace AS2.ModApi
         }
 
         private static Action _musicBrowserOpened;
-        /// <summary>
-        /// The player went to the browse music screen. This fires before the list is built, which
-        /// makes it the moment to refresh anything the browse screen reads off disk.
-        /// </summary>
+        /// <summary>The player went to the browse music screen</summary>
+        // Fires before the list is built, so it is the moment to refresh anything the browse
+        // screen reads off disk
         public static event Action MusicBrowserOpened
         {
             add { MessengerBridge.EnsureBrowseSongsClicked(); lock (Gate) _musicBrowserOpened += value; }
@@ -316,10 +254,9 @@ namespace AS2.ModApi
         }
 
         private static Action _gameShuttingDown;
-        /// <summary>
-        /// The game is closing down gracefully. A last chance to flush, though a mod should not rely
-        /// on it alone -- OnApplicationQuit and OnDestroy are the ones that always run.
-        /// </summary>
+        /// <summary>The game is closing down gracefully</summary>
+        // A last chance to flush. Do not rely on it alone -- OnApplicationQuit and OnDestroy are
+        // the ones that always run
         public static event Action GameShuttingDown
         {
             add { MessengerBridge.EnsureShuttingDown(); lock (Gate) _gameShuttingDown += value; }
@@ -401,7 +338,7 @@ namespace AS2.ModApi
             }
         }
 
-        /// <summary>Runs one subscriber. A mod that throws in a handler breaks only itself.</summary>
+        /// <summary>Runs one subscriber. A mod that throws in a handler breaks only itself</summary>
         private static void Safe(string name, Action body)
         {
             try { body(); }

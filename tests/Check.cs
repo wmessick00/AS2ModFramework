@@ -3,29 +3,24 @@ using System.Collections.Generic;
 
 namespace AS2.Tests
 {
-    /// <summary>
-    /// The assertions and the summary every test project here shares.
-    ///
-    /// This file is linked into each test project rather than built into a library of its own,
-    /// matching how those projects link the production sources they cover. Two projects now report
-    /// results, and the reporting is a convention rather than an obvious one -- PASS lines as they
-    /// happen, SKIP repeated at the end so an unexercised guard cannot pass for coverage, exit code
-    /// 0 or 1 for CI. Stated once, it stays the same in both.
-    ///
-    /// Call the assertions unqualified through `using static AS2.Tests.Check;`, and end Main with
-    /// `return Report();`.
-    ///
-    /// There is no test framework under this on purpose: the repo takes no NuGet dependency, and
-    /// `dotnet run` plus an exit code is understood by every CI there is. See the comment in
-    /// tests/AS2.ModApi.Tests/AS2.ModApi.Tests.csproj.
-    /// </summary>
+    /// <summary>The assertions and the summary every test project here shares</summary>
+    // Linked into each test project rather than built into a library, matching how those projects
+    // link the production sources they cover
+    // The reporting is a convention rather than an obvious one:
+    //   -PASS lines as they happen
+    //   -SKIP repeated at the end, so an unexercised guard cannot pass for coverage
+    //   -exit code 0 or 1 for CI
+    // Call the assertions unqualified through `using static AS2.Tests.Check;` and end Main with
+    // `return Report();`
+    // No test framework under this on purpose. The repo takes no NuGet dependency, and dotnet run
+    // plus an exit code is understood by every CI there is
     internal static class Check
     {
         private static int _passed;
         private static readonly List<string> Failures = new List<string>();
         private static readonly List<string> Skipped = new List<string>();
 
-        /// <summary>Two strings that must match exactly, including their casing.</summary>
+        /// <summary>Two strings that must match exactly, including their casing</summary>
         internal static void Same(string what, string actual, string expected)
         {
             // Ordinal: several of these are asserting which casing came back.
@@ -72,7 +67,7 @@ namespace AS2.Tests
             Console.WriteLine("  SKIP  " + why);
         }
 
-        /// <summary>Prints the summary and returns the exit code Main should return.</summary>
+        /// <summary>Prints the summary and returns the exit code Main should return</summary>
         internal static int Report()
         {
             Console.WriteLine();

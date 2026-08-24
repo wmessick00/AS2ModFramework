@@ -7,24 +7,21 @@ using UnityEngine;
 
 namespace AS2.ModApi
 {
-    /// <summary>
-    /// Draws IMGUI that looks like the game's own settings dialog, and tells you when that dialog is
-    /// open so a mod can put its entry point inside it rather than floating over the game.
-    ///
-    /// The game's settings menu is EZGUI (`Settings : Menu`, built by `buildOriginalSettings` /
-    /// `buildAS2InfoSettings`), not IMGUI, so it cannot simply be appended to: its rows come from
-    /// prefabs via `Menu.setContents(Item[], int, float)`. Reproducing the look in IMGUI is both far
-    /// less fragile and the only practical option for content that changes per skin.
-    ///
-    /// All geometry is expressed in the game's 1440p design space and scaled by
-    /// <see cref="Unit"/>, so a value measured off a 2560x1440 screenshot can be typed in directly
-    /// and still land correctly at any resolution. Positions are offsets from the centre of the
-    /// screen or of <see cref="DialogRect"/> rather than from a screen edge, because the dialog is
-    /// centred and everything in it moves with it.
-    /// </summary>
+    // Geometry
+    // ===========================================================================================
+    // Every value is in the game's 1440p design space and scaled by Unit, so a number measured off
+    // a 2560x1440 screenshot can be typed in directly
+    // Positions are offsets from the centre of the screen or of DialogRect, not from a screen edge,
+    // because the dialog is centred and everything in it moves with it
+    // The measurements and where they came from: see the AS2Ui Controls wiki page
+
+    /// <summary>Draws IMGUI that looks like the game's own settings dialog</summary>
+    // The game's settings menu is EZGUI, not IMGUI, and its rows come from prefabs via
+    // Menu.setContents, so it cannot be appended to
+    // Reproducing the look is less fragile and the only practical option for per-skin content
     public static class AS2Ui
     {
-        /// <summary>The design resolution everything below was measured against.</summary>
+        /// <summary>The design resolution everything below was measured against</summary>
         public const float DesignWidth = 2560f;
         public const float DesignHeight = 1440f;
 
@@ -36,7 +33,7 @@ namespace AS2.ModApi
         public static readonly Color TextColor = Color.white;
         public static readonly Color DimText = new Color(0.62f, 0.62f, 0.62f, 1f);
 
-        /// <summary>The track behind the handle. The game draws this white.</summary>
+        /// <summary>The track behind the handle. The game draws this white</summary>
         public static readonly Color SliderFilled = Color.white;
 
         /// <summary>
@@ -51,22 +48,18 @@ namespace AS2.ModApi
 
         // ---- Geometry -------------------------------------------------------------------------
 
-        /// <summary>
-        /// Pixels per design unit. Multiply any measured 1440p value by this.
-        ///
-        /// The game scales its dialog on **width**, not height. At 1280x768 its dialog measures
-        /// 858x608 -- 1716x1216 at exactly half scale -- and its rows sit 41.5px apart, where a
-        /// height-derived scale would give 915x648 and a 44px pitch. Taking the smaller of the two
-        /// ratios reproduces that on every aspect narrower than 16:9 and, on displays wider than
-        /// 16:9, keeps the dialog on screen instead of letting a width-only scale make it taller
-        /// than the window.
-        /// </summary>
+        /// <summary>Pixels per design unit. Multiply any measured 1440p value by this</summary>
+        // The game scales its dialog on width, not height
+        // At 1280x768 its dialog is 858x608 (1716x1216 at half scale) with rows 41.5px apart
+        // A height-derived scale would give 915x648 and a 44px pitch instead
+        // The smaller of the two ratios reproduces that below 16:9, and above 16:9 keeps the
+        // dialog on screen rather than taller than the window
         public static float Unit
         {
             get { return Mathf.Min(Screen.width / DesignWidth, Screen.height / DesignHeight); }
         }
 
-        /// <summary>Where the game centres its dialog: 1716 x 1216 design units, screen centred.</summary>
+        /// <summary>Where the game centres its dialog: 1716 x 1216 design units, screen centred</summary>
         public static Rect DialogRect
         {
             get
@@ -77,18 +70,12 @@ namespace AS2.ModApi
             }
         }
 
-        /// <summary>
-        /// The empty space to the left of the dialog's Back/Next/OK row, which is where a mod's
-        /// entry button belongs.
-        ///
-        /// Sits on the same baseline as Back/Next/OK (60 design units above the dialog's bottom
-        /// edge) rather than floating above them, and is centred 666 design units left of the
-        /// dialog's centre, in the gap between its left edge and the Back button.
-        ///
-        /// Anchored to <see cref="DialogRect"/> rather than to the screen: a y measured down from
-        /// the top of the screen only holds at the design resolution, and at 1280x768 it put this
-        /// button below the dialog's bottom edge and outside its left one.
-        /// </summary>
+        /// <summary>Where a mod's entry button belongs, left of the dialog's Back/Next/OK row</summary>
+        // Same baseline as Back/Next/OK, 60 units above the dialog's bottom edge, centred 666 units
+        // left of the dialog's centre
+        // Anchored to DialogRect, not to the screen. A y measured down from the top of the screen
+        // only holds at the design resolution -- at 1280x768 it put the button below the dialog's
+        // bottom edge and outside its left one
         public static Rect EntryButtonRect
         {
             get
@@ -113,25 +100,23 @@ namespace AS2.ModApi
         /// </summary>
         public const float SideMargin = 70f;
 
-        /// <summary>Gap between the top of the dialog and the title.</summary>
+        /// <summary>Gap between the top of the dialog and the title</summary>
         public const float HeaderTop = 44f;
 
-        /// <summary>Height of the title line, and of the dim subtitle under it.</summary>
+        /// <summary>Height of the title line, and of the dim subtitle under it</summary>
         public const float TitleHeight = 56f;
         public const float SubtitleHeight = 36f;
 
-        /// <summary>Clear space between the header and whatever the panel puts below it.</summary>
+        /// <summary>Clear space between the header and whatever the panel puts below it</summary>
         public const float HeaderGap = 34f;
 
-        /// <summary>
-        /// The button row along the bottom: 60 units tall, its top 100 above the dialog's bottom
-        /// edge. Same baseline as the game's own Back/Next/OK, which is what
-        /// <see cref="EntryButtonRect"/> sits on.
-        /// </summary>
+        /// <summary>The button row along the bottom</summary>
+        // 60 units tall, top 100 above the dialog's bottom edge
+        // Same baseline as the game's own Back/Next/OK, which EntryButtonRect sits on
         public const float FooterButtonHeight = 60f;
         public const float FooterButtonBaseline = 100f;
 
-        /// <summary>Clear space between the body and the button row.</summary>
+        /// <summary>Clear space between the body and the button row</summary>
         public const float FooterGap = 20f;
 
         /// <summary>
@@ -143,7 +128,7 @@ namespace AS2.ModApi
             get { return (FooterButtonBaseline + FooterGap) * Unit; }
         }
 
-        /// <summary>The whole screen, for the backdrop behind a panel.</summary>
+        /// <summary>The whole screen, for the backdrop behind a panel</summary>
         public static Rect FullScreen
         {
             get { return new Rect(0f, 0f, Screen.width, Screen.height); }
@@ -159,24 +144,19 @@ namespace AS2.ModApi
             return new Rect(dialog.x + SideMargin * u, y, Mathf.Max(0f, dialog.width - 2f * SideMargin * u), height);
         }
 
-        /// <summary>
-        /// Height a header drawn by <see cref="Header"/> occupies, trailing gap included, so a caller
-        /// can lay out around it without drawing it first. Pass this straight to
-        /// <see cref="BodyRect"/>.
-        /// </summary>
+        /// <summary>Height a <see cref="Header"/> occupies, trailing gap included</summary>
+        // So a caller can lay out around it without drawing it first
+        // Pass it straight to <see cref="BodyRect"/>
         public static float HeaderHeight(bool subtitled)
         {
             float u = Unit;
             return (HeaderTop + TitleHeight + (subtitled ? SubtitleHeight : 0f) + HeaderGap) * u;
         }
 
-        /// <summary>
-        /// A panel's title, and a dim second line under it when there is one. Returns the height it
-        /// used, which is what <see cref="BodyRect"/> wants.
-        ///
-        /// Pass a blank subtitle for a title on its own; the body then starts higher rather than
-        /// leaving a gap where a line would have been.
-        /// </summary>
+        /// <summary>A panel's title, and a dim second line under it when there is one</summary>
+        // Returns the height it used, which is what <see cref="BodyRect"/> wants
+        // Pass a blank subtitle for a title on its own -- the body then starts higher rather than
+        // leaving a gap where a line would have been
         public static float Header(Rect dialog, string title, string subtitle)
         {
             if (NoGuiContext("AS2Ui.Header")) return HeaderHeight(!Str.IsBlank(subtitle));
@@ -202,14 +182,11 @@ namespace AS2.ModApi
             return HeaderHeight(subtitled);
         }
 
-        /// <summary>
-        /// What is left of the dialog between a header and a footer: full width, inset by
-        /// <see cref="SideMargin"/>, and never negative in height however small the window gets.
-        ///
-        /// Give the footer the height of everything below the body, buttons included. A panel with
-        /// nothing down there but the button row wants <see cref="FooterHeight"/>; one with a hover
-        /// description or a standing note adds the height of that to it.
-        /// </summary>
+        /// <summary>What is left of the dialog between a header and a footer</summary>
+        // Full width, inset by <see cref="SideMargin"/>, never negative however small the window
+        // Give the footer the height of everything below the body, buttons included
+        // Nothing down there but the button row wants FooterHeight. A hover description or a
+        // standing note adds its own height to that
         public static Rect BodyRect(Rect dialog, float headerHeight, float footerHeight)
         {
             float top = dialog.y + headerHeight;
@@ -217,12 +194,9 @@ namespace AS2.ModApi
             return ContentRect(dialog, top, Mathf.Max(0f, bottom - top));
         }
 
-        /// <summary>
-        /// A button on the dialog's bottom row, against one side or the other.
-        ///
-        /// The width is in design units, like everything else here: 200 is what "Back" and "Close"
-        /// are drawn at, 300 fits a longer label such as "Reset to defaults".
-        /// </summary>
+        /// <summary>A button on the dialog's bottom row, against one side or the other</summary>
+        // Width is in design units, like everything else here
+        // 200 is what "Back" and "Close" draw at. 300 fits "Reset to defaults"
         public static Rect FooterButtonRect(Rect dialog, float widthUnits, bool fromRight)
         {
             float u = Unit;
@@ -235,32 +209,29 @@ namespace AS2.ModApi
         //
         // The columns the game lays a settings row out on, measured off the real dialog at 2560x1440
         // and expressed in design units from the row's left edge. Multiply by Unit, or just use
-        // RowRects. These were documented in docs/game-internals.md before they were code, which
+        // RowRects. These were prose on a wiki page before they were code, which
         // meant every mod that wanted a vanilla-looking row copied the numbers out of the prose and
         // owned its own drifting copy of them.
 
-        /// <summary>Right edge of the label column. Labels are right-aligned to it.</summary>
+        /// <summary>Right edge of the label column. Labels are right-aligned to it</summary>
         public const float LabelColumnRight = 814f;
 
-        /// <summary>Left edge of the control column, where a slider or checkbox starts.</summary>
+        /// <summary>Left edge of the control column, where a slider or checkbox starts</summary>
         public const float ControlColumnX = 838f;
 
-        /// <summary>Width of the control column.</summary>
+        /// <summary>Width of the control column</summary>
         public const float ControlColumnWidth = 350f;
 
-        /// <summary>Left edge of the value readout, e.g. "100%" or "Ultra".</summary>
+        /// <summary>Left edge of the value readout, e.g. "100%" or "Ultra"</summary>
         public const float ValueColumnX = 1206f;
 
-        /// <summary>Distance from one row's top to the next. The game's rows are 83 apart.</summary>
+        /// <summary>Distance from one row's top to the next. The game's rows are 83 apart</summary>
         public const float RowPitch = 83f;
 
-        /// <summary>
-        /// Splits a row into the three rects the game's own settings dialog uses: a right-aligned
-        /// label, the control, and the value readout to its right.
-        ///
-        /// Pass the full-width row; everything is derived from its x and its height, so this works
-        /// the same inside a scroll view as it does against the dialog.
-        /// </summary>
+        /// <summary>Splits a row into the three rects the game's settings dialog uses</summary>
+        // Right-aligned label, the control, then the value readout to its right
+        // Pass the full-width row. Everything derives from its x and its height, so this works the
+        // same inside a scroll view as against the dialog
         public static void RowRects(Rect row, out Rect label, out Rect control, out Rect value)
         {
             float u = Unit;
@@ -269,20 +240,17 @@ namespace AS2.ModApi
             value   = new Rect(row.x + ValueColumnX * u, row.y, Mathf.Max(0f, row.width - ValueColumnX * u), row.height);
         }
 
-        /// <summary>
-        /// The n-th row of a list, <see cref="RowPitch"/> apart, laid out from the top left of the
-        /// rect you are filling.
-        ///
-        /// Inside a scroll view that rect is the content rect, whose origin is 0,0 -- which is why
-        /// the columns above are measured from the row's own x rather than from the dialog's.
-        /// </summary>
+        /// <summary>The n-th row of a list, <see cref="RowPitch"/> apart</summary>
+        // Laid out from the top left of the rect you are filling
+        // Inside a scroll view that rect is the content rect, whose origin is 0,0 -- which is why
+        // the columns above measure from the row's own x rather than from the dialog's
         public static Rect Row(Rect area, int index)
         {
             float h = RowPitch * Unit;
             return new Rect(area.x, area.y + index * h, area.width, h);
         }
 
-        /// <summary>Height a list of that many rows needs. The content height for a scroll view.</summary>
+        /// <summary>Height a list of that many rows needs. The content height for a scroll view</summary>
         public static float RowsHeight(int rows)
         {
             return Mathf.Max(0, rows) * RowPitch * Unit;
@@ -293,13 +261,10 @@ namespace AS2.ModApi
         private static FieldInfo _dialogOpenField;
         private static bool _dialogFieldResolved;
 
-        /// <summary>
-        /// Whether the game's settings dialog is on screen.
-        ///
-        /// Read from the game's own `Settings.dialogOpen` static, so it is correct even if a mod
-        /// loads while the dialog is already up. <see cref="AS2Events.SettingsDialogToggled"/> is the
-        /// event form.
-        /// </summary>
+        /// <summary>Whether the game's settings dialog is on screen</summary>
+        // Read from the game's own Settings.dialogOpen static, so it is right even when a mod loads
+        // while the dialog is already up
+        // <see cref="AS2Events.SettingsDialogToggled"/> is the event form
         public static bool SettingsDialogOpen
         {
             get
@@ -331,14 +296,11 @@ namespace AS2.ModApi
 
         private static readonly HashSet<string> Warned = new HashSet<string>(StringComparer.Ordinal);
 
-        /// <summary>
-        /// Logs a message the first time it is seen and drops every repeat.
-        ///
-        /// OnGUI runs several times per frame, so a failure here is never a single event: it is the
-        /// same line a few hundred times a second. Plain logging would bury whatever else was in
-        /// LogOutput.log within moments of the first fault, which is the opposite of useful when the
-        /// log is how anybody diagnoses this framework.
-        /// </summary>
+        /// <summary>Logs a message the first time it is seen and drops every repeat</summary>
+        // OnGUI runs several times per frame, so a failure here is never one event -- it is the
+        // same line a few hundred times a second
+        // Plain logging buries the rest of LogOutput.log moments after the first fault, and the log
+        // is how anybody diagnoses this framework
         private static void WarnOnce(string message)
         {
             try
@@ -349,15 +311,12 @@ namespace AS2.ModApi
             catch { /* a logger that can break drawing is worse than a missing warning */ }
         }
 
-        /// <summary>
-        /// Whether there is no IMGUI event to draw against, meaning the caller is not inside OnGUI.
-        ///
-        /// This is the misuse a mod author actually commits: AS2Ui looks like an ordinary helper, so
-        /// it gets called from Update or from a coroutine, where Event.current is null and every GUI
-        /// call below would throw. Answering true returns before anything is drawn and, importantly,
-        /// before any control id is claimed -- bailing out mid-control would shift the id sequence
-        /// for whoever is drawing legitimately and break their layout instead.
-        /// </summary>
+        /// <summary>Whether there is no IMGUI event to draw against, so the caller is not in OnGUI</summary>
+        // The misuse a mod author actually commits. AS2Ui looks like an ordinary helper, so it gets
+        // called from Update or a coroutine, where Event.current is null and every GUI call throws
+        // Answering true returns before anything is drawn, and before any control id is claimed
+        // Bailing out mid-control would shift the id sequence for whoever is drawing legitimately
+        // and break their layout instead
         private static bool NoGuiContext(string caller)
         {
             if (Event.current != null) return false;
@@ -374,15 +333,12 @@ namespace AS2.ModApi
         private static Font _menuFont;
         private static Texture2D _white;
 
-        /// <summary>
-        /// The style for a hit area that draws nothing: a control whose look is already drawn by
-        /// hand, and which needs GUI.Button only for the click.
-        ///
-        /// Built once and shared, because OnGUI runs several times per frame -- once per IMGUI
-        /// event. A `new GUIStyle()` in the call itself is therefore not one allocation per control
-        /// drawn but one per control per event, and this file is otherwise careful to leave no
-        /// per-frame garbage. It carries no state, so sharing it between callers is safe.
-        /// </summary>
+        /// <summary>The style for a hit area that draws nothing</summary>
+        // A control whose look is already drawn by hand and needs GUI.Button only for the click
+        // Built once and shared, because OnGUI runs once per IMGUI event, several times a frame
+        // A new GUIStyle() in the call is not one allocation per control drawn but one per control
+        // per event, and this file leaves no per-frame garbage elsewhere
+        // It carries no state, so sharing it between callers is safe
         private static readonly GUIStyle Invisible = new GUIStyle();
 
         public static GUIStyle Label { get; private set; }
@@ -391,22 +347,19 @@ namespace AS2.ModApi
         public static GUIStyle Value { get; private set; }
         public static GUIStyle Title { get; private set; }
 
-        /// <summary>Dim, one line, clipped at the edge of its rect.</summary>
+        /// <summary>Dim, one line, clipped at the edge of its rect</summary>
         public static GUIStyle Dim { get; private set; }
 
-        /// <summary>Dim and wrapping, top-aligned, for prose that genuinely runs to several lines.</summary>
+        /// <summary>Dim and wrapping, top-aligned, for prose that genuinely runs to several lines</summary>
         public static GUIStyle DimWrap { get; private set; }
 
-        /// <summary>
-        /// Builds the styles. Call at the top of OnGUI; GUIStyle construction is only legal inside
-        /// OnGUI, which is why this is not done in Awake.
-        ///
-        /// Rebuilt whenever the resolution changes, because a font size is in pixels and everything
-        /// else here is in design units. Building once left the fonts frozen at their old size while
-        /// every rect around them resized -- and the resolution slider lives in the very dialog this
-        /// draws into, so that was not an edge case: changing it made labels overprint each other
-        /// and button text fill its button edge to edge.
-        /// </summary>
+        /// <summary>Builds the styles. Call at the top of OnGUI</summary>
+        // GUIStyle construction is only legal inside OnGUI, which is why this is not in Awake
+        // Rebuilt whenever the resolution changes, because a font size is in pixels and everything
+        // else here is in design units
+        // Building once froze the fonts at their old size while every rect around them resized
+        // Not an edge case: the resolution slider lives in the dialog this draws into, and changing
+        // it made labels overprint each other and button text fill its button edge to edge
         public static void EnsureStyles()
         {
             if (_built && _builtWidth == Screen.width && _builtHeight == Screen.height) return;
@@ -469,11 +422,9 @@ namespace AS2.ModApi
             _built = true;
         }
 
-        /// <summary>
-        /// A design-space font size in pixels, with a floor: 800x600 puts the dim face at 8px and
-        /// anything below that is unreadable anyway, while a rounded-down 0 makes Unity fall back to
-        /// the font's own size, which is far larger than anything asked for here.
-        /// </summary>
+        /// <summary>A design-space font size in pixels, with a floor</summary>
+        // 800x600 puts the dim face at 8px, and below that it is unreadable anyway
+        // A rounded-down 0 makes Unity fall back to the font's own size, far larger than asked for
         private static int FontSize(float designUnits)
         {
             return Mathf.Max(8, Mathf.RoundToInt(designUnits * Unit));
@@ -508,22 +459,16 @@ namespace AS2.ModApi
 
         // ---- Measuring text -----------------------------------------------------------------------
 
-        /// <summary>
-        /// One GUIContent, refilled for each measurement. CalcHeight keeps nothing, and OnGUI runs
-        /// once per IMGUI event, so a fresh GUIContent per call would be per-frame garbage in the
-        /// same way <see cref="Invisible"/> was.
-        /// </summary>
+        /// <summary>One GUIContent, refilled for each measurement</summary>
+        // CalcHeight keeps nothing, and OnGUI runs once per IMGUI event, so a fresh GUIContent per
+        // call would be per-frame garbage the same way <see cref="Invisible"/> was
         private static readonly GUIContent Measured = new GUIContent();
 
-        /// <summary>
-        /// The height of one wrapped line in a style, at the width it will be drawn at.
-        ///
-        /// Use this rather than GUIStyle.lineHeight to reserve room for a known number of lines.
-        /// lineHeight is the font's line height; CalcHeight lays text out on the font's line
-        /// *spacing*, and the few units between the two are enough that a rect of lineHeight * n
-        /// clips the last line of an n-line paragraph. Measuring one line with the same call that
-        /// measures the real text settles it.
-        /// </summary>
+        /// <summary>The height of one wrapped line in a style, at the width it will draw at</summary>
+        // Use this and not GUIStyle.lineHeight to reserve room for a known number of lines
+        // lineHeight is the font's line height. CalcHeight lays text out on the font's line spacing,
+        // and the few units between the two clip the last line of an n-line paragraph
+        // Measuring one line with the same call that measures the real text settles it
         public static float LineHeight(GUIStyle style, float width)
         {
             return TextHeight(style, "X", width);
@@ -551,11 +496,10 @@ namespace AS2.ModApi
 
         // ---- Primitives -------------------------------------------------------------------------
 
-        /// <summary>
-        /// Fills a rect. The colour is restored in a finally rather than after the draw, because a
-        /// throw between the two would otherwise leave GUI.color set and tint everything drawn
-        /// afterwards by anyone, which reads as a rendering bug in whichever mod drew next.
-        /// </summary>
+        /// <summary>Fills a rect</summary>
+        // Colour restored in a finally, not after the draw
+        // A throw between the two leaves GUI.color set and tints everything drawn afterwards by
+        // anyone, which reads as a rendering bug in whichever mod drew next
         public static void Fill(Rect r, Color c)
         {
             if (NoGuiContext("AS2Ui.Fill")) return;
@@ -570,7 +514,7 @@ namespace AS2.ModApi
             finally { GUI.color = previous; }
         }
 
-        /// <summary>Panel background plus the thin border the game's dialog has.</summary>
+        /// <summary>Panel background plus the thin border the game's dialog has</summary>
         public static void Panel(Rect r)
         {
             if (NoGuiContext("AS2Ui.Panel")) return;
@@ -589,21 +533,15 @@ namespace AS2.ModApi
 
         private static readonly int SliderHash = "AS2UiSlider".GetHashCode();
 
-        /// <summary>
-        /// The game's slider: one rail in two colours, white up to the handle and blue past it, with
-        /// a tall white block for the handle. Both halves are the same thickness, and that thickness
-        /// is <see cref="TrackThickness"/> -- the same measurement the scrollbar's rail uses.
-        /// Click or drag anywhere on the row to set the value.
-        ///
-        /// The interaction is hand-rolled rather than layered over GUI.HorizontalSlider, because
-        /// making the native one invisible means giving it an empty GUIStyle, which leaves it with a
-        /// zero-width thumb and correspondingly odd drag and clamping behaviour. Doing the hit test
-        /// directly is a dozen lines and behaves predictably.
-        /// </summary>
-        /// <summary>
-        /// Handle size. Much taller than the rail, so it reads as a grip rather than as a join
-        /// between the two colours.
-        /// </summary>
+        /// <summary>The game's slider: one rail in two colours, with a tall block for the handle</summary>
+        // White up to the handle, blue past it. Both halves are TrackThickness, the same
+        // measurement the scrollbar's rail uses
+        // Click or drag anywhere on the row to set the value
+        // Hand-rolled rather than layered over GUI.HorizontalSlider: making the native one
+        // invisible means an empty GUIStyle, which leaves a zero-width thumb and odd drag and
+        // clamping behaviour. The hit test directly is a dozen lines and behaves predictably
+        /// <summary>Handle size</summary>
+        // Much taller than the rail, so it reads as a grip and not as a join between the colours
         public const float SliderHandleWidth = 15f;
         public const float SliderHandleHeight = 44f;
 
@@ -683,13 +621,10 @@ namespace AS2.ModApi
             return min + Mathf.Clamp01((mouseX - trackX - handleW * 0.5f) / usable) * span;
         }
 
-        /// <summary>
-        /// The game's checkbox: a white square with a cross when set.
-        ///
-        /// The GUI matrix is restored in a finally. It is rotated twice while drawing the cross, and
-        /// a throw between the rotation and the restore would leave every later control in the frame
-        /// drawn at 45 degrees -- a spectacular failure to pin on whichever mod drew next.
-        /// </summary>
+        /// <summary>The game's checkbox: a white square with a cross when set</summary>
+        // The GUI matrix is restored in a finally. It rotates twice while drawing the cross, and a
+        // throw between the rotation and the restore leaves every later control in the frame drawn
+        // at 45 degrees -- a spectacular failure to pin on whichever mod drew next
         public static bool Toggle(Rect r, bool value)
         {
             if (NoGuiContext("AS2Ui.Toggle")) return value;
@@ -727,19 +662,14 @@ namespace AS2.ModApi
             finally { GUI.matrix = matrix; }
         }
 
-        /// <summary>
-        /// A whole settings row for a boolean: right-aligned label, then the game's checkbox in the
-        /// control column. Returns the new value, so use it the way you would GUI.Toggle:
-        ///
-        ///     myFlag = AS2Ui.ToggleRow(row, "Autofind Music", myFlag);
-        ///
-        /// This is what the game does for Autofind Music, Vsync and the scoreboard options, and it
-        /// is why a boolean should not be drawn as a two-stop slider: the game has a checkbox and a
-        /// player reads a slider that only moves between two positions as a broken slider.
-        ///
-        /// No value readout, matching the game -- the box is the readout. Rows are
-        /// <see cref="RowPitch"/> apart.
-        /// </summary>
+        /// <summary>A whole settings row for a boolean</summary>
+        // Right-aligned label, then the game's checkbox in the control column
+        // Returns the new value, so use it the way you would GUI.Toggle:
+        //     myFlag = AS2Ui.ToggleRow(row, "Autofind Music", myFlag);
+        // What the game does for Autofind Music, Vsync and the scoreboard options
+        // Do not draw a boolean as a two-stop slider. The game has a checkbox, and a player reads a
+        // slider that only moves between two positions as a broken slider
+        // No value readout, matching the game -- the box is the readout
         public static bool ToggleRow(Rect row, string label, bool value)
         {
             if (NoGuiContext("AS2Ui.ToggleRow")) return value;
@@ -763,19 +693,13 @@ namespace AS2.ModApi
             }
         }
 
-        /// <summary>
-        /// A whole settings row for a number: right-aligned label, the game's slider, and the value
-        /// readout to its right. Use it the way you would GUI.HorizontalSlider:
-        ///
-        ///     volume = AS2Ui.SliderRow(row, "Music Volume", volume, 0f, 100f, percent + "%");
-        ///
-        /// The readout is yours to format, because only you know whether the number is a percentage,
-        /// a count or a multiplier. It describes the value you passed in, not the value returned, so
-        /// during a drag it trails the handle by one IMGUI event -- which is what the game's own
-        /// rows do and is not visible at frame rate.
-        ///
-        /// Rows are <see cref="RowPitch"/> apart.
-        /// </summary>
+        /// <summary>A whole settings row for a number</summary>
+        // Right-aligned label, the game's slider, then the value readout to its right
+        //     volume = AS2Ui.SliderRow(row, "Music Volume", volume, 0f, 100f, percent + "%");
+        // The readout is yours to format -- only you know whether it is a percentage, a count or a
+        // multiplier
+        // It describes the value passed in, not the value returned, so during a drag it trails the
+        // handle by one IMGUI event. The game's own rows do the same, and it is not visible
         public static float SliderRow(Rect row, string label, float value, float min, float max, string valueText)
         {
             if (NoGuiContext("AS2Ui.SliderRow")) return value;
@@ -804,20 +728,16 @@ namespace AS2.ModApi
             }
         }
 
-        /// <summary>
-        /// A whole settings row for a fixed set of options: a slider with one stop per option, and
-        /// the chosen option's label where the number would go. Takes and returns an index.
-        ///
-        ///     quality = AS2Ui.ChoiceRow(row, "Graphics Level", quality, new[] { "Low", "High", "Ultra" });
-        ///
-        /// This is what the game does for Graphics Level, Anti-Aliasing and Resolution, and it is
-        /// worth copying rather than drawing a list: it keeps every setting one row tall, so a panel
-        /// of them stays as short as the game's. A list of buttons turns seven settings into
-        /// something taller than the screen.
-        ///
-        /// The readout follows the handle as it is dragged, so the label always names the option the
-        /// row is about to be set to.
-        /// </summary>
+        /// <summary>A whole settings row for a fixed set of options</summary>
+        // A slider with one stop per option, and the chosen option's label where the number goes
+        // Takes and returns an index:
+        //     quality = AS2Ui.ChoiceRow(row, "Graphics Level", quality, new[] { "Low", "High", "Ultra" });
+        // What the game does for Graphics Level, Anti-Aliasing and Resolution
+        // Worth copying rather than drawing a list: it keeps every setting one row tall, so a panel
+        // stays as short as the game's. A list of buttons turns 7 settings into something taller
+        // than the screen
+        // The readout follows the handle as it drags, so the label names the option it is about to
+        // be set to
         public static int ChoiceRow(Rect row, string label, int index, string[] options)
         {
             if (NoGuiContext("AS2Ui.ChoiceRow")) return index;
@@ -855,25 +775,21 @@ namespace AS2.ModApi
 
         private static GUIStyle _buttonStyle;
 
-        /// <summary>
-        /// How much of a button's height its label may occupy. The game's 60-unit button carries the
-        /// 34-unit body face, and the space the other 26 units leave is what reads as the button's
-        /// padding -- more of it below the text than above, because a line box includes a descender
-        /// these labels never use.
-        /// </summary>
+        /// <summary>How much of a button's height its label may occupy</summary>
+        // 60 > 34 -- the game's 60-unit button carries the 34-unit body face
+        // The other 26 units are what reads as the button's padding, more below the text than above,
+        // because a line box includes a descender these labels never use
         private const float LabelHeightFraction = 0.58f;
 
-        /// <summary>
-        /// The game's flat grey button.
-        ///
-        /// The label is fitted rather than clipped, in both directions. Height matters because a
-        /// button shorter than the standard 60 units -- the &lt; &gt; pair on the target picker is 42 --
-        /// would otherwise have the body face fill it edge to edge, which is what makes a button
-        /// look unlike the game's. Width matters because the game's menu face is wide, so a label
-        /// sized for the body text overflows a generously sized button surprisingly easily:
-        /// "Skin / Mode Settings" and "Reset to defaults" both rendered with their first and last
-        /// characters cut off before this. Measuring here means no caller has to size its own rects.
-        /// </summary>
+        /// <summary>The game's flat grey button</summary>
+        // The label is fitted rather than clipped, in both directions
+        // Height: a button shorter than the standard 60 units (the &lt; &gt; pair on the target
+        // picker is 42) would have the body face fill it edge to edge, which is what makes a button
+        // look unlike the game's
+        // Width: the game's menu face is wide, so a label sized for body text overflows a generous
+        // button easily. "Skin / Mode Settings" and "Reset to defaults" both lost their first and
+        // last characters before this
+        // Measuring here means no caller has to size its own rects
         public static bool Button(Rect r, string label, bool enabled = true)
         {
             if (NoGuiContext("AS2Ui.Button")) return false;
@@ -929,45 +845,33 @@ namespace AS2.ModApi
         // That is a page of input handling for something every scrolling panel needs identically,
         // which is exactly the kind of thing this class exists to stop each mod writing again.
 
-        /// <summary>Strip kept clear at the right of a list for the scrollbar to ride in.</summary>
+        /// <summary>Strip kept clear at the right of a list for the scrollbar to ride in</summary>
         public const float ScrollGutter = 44f;
 
-        /// <summary>
-        /// Side of the scrollbar's thumb. Square, and the same size however long the list is, because
-        /// that is what the game's own scrolling lists draw. A proportional thumb is more informative
-        /// and looks nothing like it: on a list one row too tall it covers almost the whole track.
-        /// </summary>
+        /// <summary>Side of the scrollbar's thumb</summary>
+        // Square, and the same size however long the list is, because that is what the game draws
+        // A proportional thumb is more informative and looks nothing like it -- on a list one row
+        // too tall it covers almost the whole track
         public const float ScrollThumb = 28f;
 
-        /// <summary>
-        /// Thickness of the rail a handle travels along: the width of the scrollbar's track and the
-        /// height of a slider's track, which are the same measurement on the game's own dialog and
-        /// are therefore one constant here.
-        ///
-        /// <para>
-        /// The rail is deliberately much thinner than <see cref="ScrollThumb"/>. Drawing the track
-        /// at the thumb's width -- which this used to do -- produces a column with a slightly paler
-        /// square sliding down it, and reads as a progress bar rather than as a scrollbar. The thumb
-        /// has to overhang the rail for the shape to say "handle".
-        /// </para>
-        /// </summary>
+        /// <summary>Thickness of the rail a handle travels along</summary>
+        // The scrollbar track's width and the slider track's height. One measurement on the game's
+        // dialog, so one constant here
+        // Much thinner than ScrollThumb on purpose. Drawing the track at the thumb's width, which
+        // this used to do, gives a column with a slightly paler square sliding down it, and reads
+        // as a progress bar
+        // The thumb has to overhang the rail for the shape to say "handle"
         public const float TrackThickness = 12f;
 
         private static readonly int ScrollbarHash = "AS2UiScrollbar".GetHashCode();
 
-        /// <summary>
-        /// Whose turn the one shared scroll view is.
-        ///
-        /// IMGUI keeps one clip stack, so only one view can be open however many mods draw. That
-        /// makes the bookkeeping shared state, and shared state is what one mod can break for every
-        /// other mod: a mod whose OnGUI returned between BeginScroll and EndScroll used to cost
-        /// every mod drawn after it in that frame its own scroll view. That shipped once, as
-        /// issue #38.
-        ///
-        /// <see cref="ScrollTurns"/> holds those rules away from Unity, so tests\AS2.ModApi.Tests
-        /// drives them cold. The caller token is the mod's own assembly, which is what lets a
-        /// warning name the mod that left a view open.
-        /// </summary>
+        /// <summary>Whose turn the one shared scroll view is</summary>
+        // IMGUI keeps one clip stack, so one view can be open however many mods draw
+        // #38 -- that makes the bookkeeping shared state, and a mod whose OnGUI returned between
+        // BeginScroll and EndScroll cost every mod drawn after it its own scroll view
+        // ScrollTurns holds the rules away from Unity, so tests\AS2.ModApi.Tests drives them cold
+        // The caller token is the mod's own assembly, which is what lets a warning name the mod
+        // that left a view open
         private static readonly ScrollTurns Turns = new ScrollTurns();
 
         /// <summary>
@@ -977,25 +881,18 @@ namespace AS2.ModApi
         private static Rect _scrollBody;
         private static float _scrollContent;
 
-        /// <summary>
-        /// Opens a scrolling list over <paramref name="body"/> and returns the rect to lay the rows
-        /// out in. Close it with <see cref="EndScroll"/>, which draws the scrollbar.
-        ///
-        ///     Rect content = AS2Ui.BeginScroll(body, ref _scroll, AS2Ui.RowsHeight(items.Count));
-        ///     for (int i = 0; i &lt; items.Count; i++) DrawRow(AS2Ui.Row(content, i));
-        ///     AS2Ui.EndScroll(ref _scroll);
-        ///
-        /// The returned rect starts at 0,0, because coordinates inside a scroll view are relative to
-        /// it -- which is also why the column constants are measured from a row's own x. It is
-        /// narrower than the body by <see cref="ScrollGutter"/>, leaving the bar somewhere to ride
-        /// that the rows do not reach into.
-        ///
-        /// The view itself is the full width of the body, deliberately. Sizing it to the rows instead
-        /// is what lets a horizontal scrollbar in: EndScrollView clamps the horizontal offset to
-        /// (view - visible), which goes negative the moment the view is the narrower of the two, and
-        /// one wheel tick then shunts the whole list sideways. Equal widths make the horizontal range
-        /// exactly zero, so there is nothing to scroll to and nothing to draw a bar for.
-        /// </summary>
+        /// <summary>Opens a scrolling list over <paramref name="body"/> and returns the row rect</summary>
+        // Close it with <see cref="EndScroll"/>, which draws the scrollbar:
+        //     Rect content = AS2Ui.BeginScroll(body, ref _scroll, AS2Ui.RowsHeight(items.Count));
+        //     for (int i = 0; i &lt; items.Count; i++) DrawRow(AS2Ui.Row(content, i));
+        //     AS2Ui.EndScroll(ref _scroll);
+        // The returned rect starts at 0,0, because coordinates inside a scroll view are relative to
+        // it. That is also why the column constants measure from a row's own x
+        // Narrower than the body by ScrollGutter, leaving the bar somewhere to ride
+        // The view is the full width of the body on purpose. Size it to the rows and a horizontal
+        // scrollbar gets in: EndScrollView clamps the horizontal offset to (view - visible), which
+        // goes negative once the view is narrower, and one wheel tick shunts the list sideways
+        // Equal widths make the horizontal range exactly zero
         [MethodImpl(MethodImplOptions.NoInlining)]   // GetCallingAssembly must see the mod, not us
         public static Rect BeginScroll(Rect body, ref Vector2 scroll, float contentHeight)
         {
@@ -1062,15 +959,13 @@ namespace AS2.ModApi
             catch (Exception ex) { WarnOnce("AS2Ui.EndScroll failed: " + ex.Message); }
         }
 
-        /// <summary>
-        /// The game's vertical scrollbar, drawn rather than styled: a pale square thumb on a track a
-        /// shade lighter than the panel behind it. Returns the new scroll offset.
-        ///
-        /// Nothing is drawn, and no control is claimed, when the content already fits; the offset
-        /// comes back as 0, since no other value is in range. Clicking anywhere in the track jumps
-        /// the thumb to the cursor and starts a drag, which is how <see cref="Slider"/> behaves and
-        /// how the game's own lists behave.
-        /// </summary>
+        /// <summary>The game's vertical scrollbar, drawn rather than styled</summary>
+        // A pale square thumb on a track a shade lighter than the panel behind it
+        // Returns the new scroll offset
+        // Nothing drawn and no control claimed when the content already fits. The offset comes back
+        // as 0, since no other value is in range
+        // Clicking anywhere in the track jumps the thumb to the cursor and starts a drag, which is
+        // how <see cref="Slider"/> and the game's own lists behave
         public static float Scrollbar(Rect track, float scrollY, float contentHeight)
         {
             if (NoGuiContext("AS2Ui.Scrollbar")) return scrollY;

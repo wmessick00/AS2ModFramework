@@ -3,45 +3,37 @@ using UnityEngine;
 
 namespace AS2.ModApi
 {
-    /// <summary>
-    /// A single "Mod Menu" button inside the game's settings dialog, and the hub it opens.
-    ///
-    /// This belongs to the framework rather than to any one mod. The settings dialog has room for
-    /// exactly one extra button; if every mod added its own the row would overflow after the second,
-    /// and the ordering would depend on plugin load order. So the API owns the button, and mods
-    /// register an entry:
-    ///
-    ///     AS2ModMenu.Register("Skin and Mode Settings", "Configure skins and modes.", OpenMyPanel);
-    ///
-    /// Entries are listed alphabetically so the menu does not reshuffle when load order changes.
-    /// </summary>
+    /// <summary>The one "Mod Menu" button inside the game's settings dialog, and the hub it opens</summary>
+    // Belongs to the framework, not to any one mod. The settings dialog has room for exactly one
+    // extra button, so every mod adding its own overflows the row after the second and orders them
+    // by plugin load order
+    // The API owns the button and mods register an entry:
+    //     AS2ModMenu.Register("Skin and Mode Settings", "Configure skins and modes.", OpenMyPanel);
+    // Listed alphabetically, so the menu does not reshuffle when load order changes
     public static class AS2ModMenu
     {
         private static IDisposable _inputLock;
         private static Vector2 _scroll;
 
-        /// <summary>Whether the hub itself is on screen.</summary>
+        /// <summary>Whether the hub itself is on screen</summary>
         public static bool IsOpen { get; private set; }
 
-        /// <summary>
-        /// Adds an entry. Registering the same title twice replaces the first, so a plugin that
-        /// reloads does not end up listed twice. Safe to call from any thread.
-        /// </summary>
+        /// <summary>Adds an entry. Safe to call from any thread</summary>
+        // Registering the same title twice replaces the first, so a plugin that reloads is not
+        // listed twice
         public static void Register(string title, string description, Action open)
         {
             ModMenuRegistry.Register(title, description, open);
         }
 
-        /// <summary>Removes an entry by title. Safe to call from any thread.</summary>
+        /// <summary>Removes an entry by title. Safe to call from any thread</summary>
         public static void Unregister(string title)
         {
             ModMenuRegistry.Unregister(title);
         }
 
-        /// <summary>
-        /// Opens the hub. Unlike Register, this belongs on the main thread: it takes the game's
-        /// input lock, and the drawing state it sets is read by OnGUI.
-        /// </summary>
+        /// <summary>Opens the hub. Main thread only, unlike Register</summary>
+        // It takes the game's input lock, and the drawing state it sets is read by OnGUI
         public static void Open()
         {
             if (IsOpen) return;
@@ -57,7 +49,7 @@ namespace AS2.ModApi
             if (_inputLock != null) { _inputLock.Dispose(); _inputLock = null; }
         }
 
-        /// <summary>Called from the API plugin's OnGUI. Mods should not call this.</summary>
+        /// <summary>Called from the API plugin's OnGUI. Mods should not call this</summary>
         internal static void Draw()
         {
             if (IsOpen) { DrawHub(); return; }

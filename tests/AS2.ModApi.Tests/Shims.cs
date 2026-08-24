@@ -39,7 +39,7 @@ internal static class RingDesignManager
     private static void OnListItemSelected(int index) { }
 }
 
-/// <summary>The game's mode selector, in the same shape.</summary>
+/// <summary>The game's mode selector, in the same shape</summary>
 internal static class ModeSelect
 {
     internal static Mode selectedModeScript { get; set; }
@@ -49,13 +49,13 @@ internal static class ModeSelect
     private static void OnListItemSelected(int index) { }
 }
 
-/// <summary>The game's mode script record. One member is read.</summary>
+/// <summary>The game's mode script record. One member is read</summary>
 internal sealed class Mode
 {
     internal string relativePath { get; set; }
 }
 
-/// <summary>The game's settings dialog. Patches watches it open and close.</summary>
+/// <summary>The game's settings dialog. Patches watches it open and close</summary>
 internal static class Settings
 {
     private static void OnEnable() { }
@@ -82,20 +82,16 @@ internal static class CodeEditor
 
 namespace HarmonyLib
 {
-    /// <summary>
-    /// Enough of Harmony for Patches.cs to compile and run its lookups.
-    ///
-    /// Deliberately does no patching: what these checks care about is which members Patches finds,
-    /// what it does when it cannot find one, and that a failure costs one event rather than the run.
-    /// A real patch would need the runtime code generation the game provides and this project does
-    /// not have.
-    /// </summary>
+    /// <summary>Enough of Harmony for Patches.cs to compile and run its lookups</summary>
+    // Does no patching, on purpose. These checks care about which members Patches finds, what it
+    // does when it cannot find one, and that a failure costs one event rather than the run
+    // A real patch needs the runtime code generation the game provides and this project does not
     public sealed class Harmony
     {
-        /// <summary>Every patch this instance was asked to apply, in order.</summary>
+        /// <summary>Every patch this instance was asked to apply, in order</summary>
         internal readonly List<string> Applied = new List<string>();
 
-        /// <summary>Set by a check to make the next Patch call throw, as a broken target would.</summary>
+        /// <summary>Set by a check to make the next Patch call throw, as a broken target would</summary>
         internal string ThrowOn;
 
         public Harmony(string id) { Id = id; }
@@ -117,7 +113,7 @@ namespace HarmonyLib
         }
     }
 
-    /// <summary>A patch method, as Harmony wraps one.</summary>
+    /// <summary>A patch method, as Harmony wraps one</summary>
     public sealed class HarmonyMethod
     {
         public HarmonyMethod(MethodInfo method) { Method = method; }
@@ -135,7 +131,7 @@ namespace HarmonyLib
                                        | BindingFlags.Static | BindingFlags.Instance
                                        | BindingFlags.DeclaredOnly;
 
-        /// <summary>Names a check has hidden, to stand for a member a community patch renamed.</summary>
+        /// <summary>Names a check has hidden, to stand for a member a community patch renamed</summary>
         internal static readonly List<string> Hidden = new List<string>();
 
         public static Type TypeByName(string name)
@@ -228,7 +224,7 @@ namespace AS2.ModApi
 
         internal void Clear() { Warnings.Clear(); }
 
-        /// <summary>Whether any warning so far contains the given fragment, ignoring case.</summary>
+        /// <summary>Whether any warning so far contains the given fragment, ignoring case</summary>
         internal bool Mentions(string fragment)
         {
             foreach (string w in Warnings)

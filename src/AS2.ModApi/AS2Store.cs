@@ -5,39 +5,25 @@ using System.IO;
 
 namespace AS2.ModApi
 {
-    /// <summary>
-    /// Reading and writing a mod's own data file without losing it.
-    ///
-    /// <see cref="AS2Paths"/> says where a file goes. This says how to put it there. Three mods now
-    /// keep player data in <c>BepInEx\data\</c>, all three want the same three things, and all three
-    /// would otherwise write the same subtly-wrong version of them.
-    ///
-    /// <para>
-    /// <b>Text, not JSON, and deliberately so.</b> The game ships Newtonsoft.Json and a mod is
-    /// welcome to use it; this framework does not, because a serialiser in the shared API means
-    /// every mod inherits its version and its settings. What is actually hard here is not turning an
-    /// object into a string -- it is the two file operations below, which are easy to write and
-    /// easy to write wrongly.
-    /// </para>
-    ///
-    /// <para>
-    /// This class touches no game type and no Unity type, so it is checked by the cold tests rather
-    /// than by launching the game.
-    /// </para>
-    /// </summary>
+    /// <summary>Reading and writing a mod's own data file without losing it</summary>
+    // <see cref="AS2Paths"/> says where a file goes. This says how to put it there
+    // Three mods keep player data in BepInEx\data\, all three want the same three things, and all
+    // three would otherwise write the same subtly-wrong version of them
+    // Text, not JSON, on purpose. A serialiser in the shared API means every mod inherits its
+    // version and its settings
+    // What is hard here is not turning an object into a string. It is the two file operations
+    // below, which are easy to write and easy to write wrongly
+    // No game type and no Unity type, so the cold checks cover it
     public static class AS2Store
     {
-        /// <summary>How many quarantined copies of one file to keep before the oldest is dropped.</summary>
+        /// <summary>How many quarantined copies of one file to keep before the oldest is dropped</summary>
         private const int MaxQuarantined = 5;
 
-        /// <summary>
-        /// Reads a file, or returns null when it is not there.
-        ///
-        /// Absent and unreadable are both null on purpose: a mod's first run has no file, and a mod
-        /// that has to tell the two apart is a mod about to lose the player's data over a transient
-        /// sharing violation. Treat null as "start empty" and never as "the player has no data, so
-        /// overwrite".
-        /// </summary>
+        /// <summary>Reads a file, or returns null when it is not there</summary>
+        // Absent and unreadable are both null on purpose
+        // A mod's first run has no file, and a mod that has to tell the two apart is a mod about to
+        // lose the player's data over a transient sharing violation
+        // Treat null as "start empty". Never as "the player has no data, so overwrite"
         public static string Read(string path)
         {
             try
@@ -52,27 +38,15 @@ namespace AS2.ModApi
             }
         }
 
-        /// <summary>
-        /// Writes a file so that a crash cannot leave a half-written one behind.
-        ///
-        /// <para>
-        /// The naive version -- open the real file and write -- has a window in which the file is
-        /// truncated and the new contents are not yet on disk. A crash, a power cut or an Alt-F4
-        /// inside that window costs the player everything the file held. So this writes a sibling
-        /// <c>.tmp</c> first and then swaps it into place, and the swap is the part that has to be
-        /// atomic.
-        /// </para>
-        ///
-        /// <para>
-        /// File.Replace is that swap and is preferred, because it also keeps a <c>.prev</c> copy of
-        /// what was there. It fails across volumes and on some network paths, and the game folder is
-        /// somewhere the player chose, so there is a fallback: <see cref="RenameIntoPlace"/>. The
-        /// fallback ends with the same two files File.Replace would have left, and gets there
-        /// without needing <c>.prev</c> to be writable -- see the note there for why that matters.
-        /// </para>
-        ///
-        /// <para>Returns false rather than throwing. Losing a save is worth a log line, not a crash.</para>
-        /// </summary>
+        /// <summary>Writes a file so a crash cannot leave a half-written one behind</summary>
+        // Open the real file and write, and there is a window where it is truncated and the new
+        // contents are not on disk yet. A crash, a power cut or an Alt-F4 in it costs the player
+        // everything the file held
+        // So: write a sibling .tmp, then swap it into place. The swap is the part that must be atomic
+        // File.Replace is preferred, because it also keeps a .prev copy of what was there
+        // It fails across volumes and on some network paths, and the game folder is somewhere the
+        // player chose, so <see cref="RenameIntoPlace"/> is the fallback
+        // Returns false rather than throwing. Losing a save is a log line, not a crash
         public static bool WriteAtomic(string path, string contents)
         {
             if (Str.IsBlank(path)) return false;
@@ -116,42 +90,30 @@ namespace AS2.ModApi
             }
         }
 
-        /// <summary>
-        /// The fallback swap, for the filesystems where File.Replace does not work.
-        ///
-        /// <para>
-        /// This used to delete the old file and then rename the new one over it. Two unguarded steps
-        /// are one step too many: if the delete won and the rename then lost -- an anti-virus scanner
-        /// holding the temp file for a moment, a sharing violation, a full disk -- the old contents
-        /// were already gone, and the caller's cleanup deleted the temp file as well. Both copies of
-        /// the player's data went, and the method reported an ordinary failed write.
-        /// </para>
-        ///
-        /// <para>
-        /// So the old file moves aside instead of going away. Every step after that has somewhere to
-        /// go back to: the rename fails, the old file comes back, and the write is a plain failure
-        /// again.
-        /// </para>
-        ///
-        /// <para>
-        /// It moves aside to <c>.bak</c> and not to <c>.prev</c>, which is the name File.Replace
-        /// keeps its own backup under. Reusing <c>.prev</c> reads as tidy and is a trap: an
-        /// unwritable <c>.prev</c> is one of the things that makes File.Replace fail in the first
-        /// place, so a fallback that needs the same name inherits the very failure it is here to
-        /// answer. A stale read-only copy, or a backup tool holding it open, took out both paths at
-        /// once and the write failed with nowhere left to go. <c>.bak</c> is this method's own
-        /// working name -- nothing else writes it, and it exists only between the two renames below.
-        /// </para>
-        ///
-        /// <para>
-        /// Once the swap is done, <c>.bak</c> becomes <c>.prev</c>, so a fallback write leaves the
-        /// same two files a File.Replace write leaves. That step is housekeeping and is allowed to
-        /// fail: by then the player's new contents are already in place, and nothing after this
-        /// point may put them at risk to tidy a backup.
-        /// </para>
-        ///
-        /// <para>Throws on failure, which the caller logs. Returns true only once the swap is done.</para>
-        /// </summary>
+        /// <summary>The fallback swap, for the filesystems where File.Replace does not work</summary>
+        // #32 -- this used to delete the old file, then rename the new one over it
+        // Two unguarded steps is one too many. The delete wins, the rename loses (an AV scanner
+        // holding the temp file, a sharing violation, a full disk), the old contents are gone, and
+        // the caller's cleanup deletes the temp file too
+        // Both copies of the player's data went, reported as an ordinary failed write
+        //
+        // So the old file moves aside instead of going away, and every step after has somewhere to
+        // go back to: the rename fails, the old file comes back, and it is a plain failure again
+        //
+        // Aside to .bak, not to .prev, which is File.Replace's own backup name
+        // Reusing .prev reads as tidy and is a trap: an unwritable .prev is one of the things that
+        // makes File.Replace fail, so a fallback needing the same name inherits the failure it is
+        // here to answer
+        // A stale read-only copy, or a backup tool holding it open, took out both paths at once
+        // .bak is this method's own working name, written by nothing else, and it exists only
+        // between the two renames below
+        //
+        // After the swap .bak becomes .prev, so a fallback write leaves the same two files a
+        // File.Replace write leaves
+        // That step is housekeeping and may fail. The player's new contents are already in place,
+        // and nothing past this point may risk them to tidy a backup
+        //
+        // Throws on failure, which the caller logs. Returns true only once the swap is done
         private static bool RenameIntoPlace(string path, string temp, string previous)
         {
             string backup = path + ".bak";
@@ -176,13 +138,11 @@ namespace AS2.ModApi
             return true;
         }
 
-        /// <summary>
-        /// Puts the old contents back after the fallback swap failed halfway.
-        ///
-        /// If even this cannot run, the file is still on disk under the <c>.bak</c> name and the
-        /// player can rename it by hand -- so the log line has to say so. That is the whole reason
-        /// the old file is moved rather than deleted: there is always something left to name.
-        /// </summary>
+        /// <summary>Puts the old contents back after the fallback swap failed halfway</summary>
+        // If even this cannot run, the file is on disk under .bak and the player can rename it by
+        // hand, so the log line has to say so
+        // That is the whole reason the old file moves rather than being deleted -- there is always
+        // something left to name
         private static void Restore(string backup, string path)
         {
             try
@@ -198,14 +158,11 @@ namespace AS2.ModApi
             }
         }
 
-        /// <summary>
-        /// Files the superseded copy under the name File.Replace would have used, or drops it when
-        /// that name cannot be written -- which is often exactly why the fallback ran.
-        ///
-        /// Neither outcome can fail the write: it already succeeded. What must not happen is a
-        /// <c>.bak</c> left in <c>BepInEx\data\</c>, because the folder the player is told to back
-        /// up would then fill with copies of every save that ever took this path.
-        /// </summary>
+        /// <summary>Files the superseded copy under the name File.Replace would have used</summary>
+        // Or drops it when that name cannot be written, which is often why the fallback ran
+        // Neither outcome can fail the write -- it already succeeded
+        // What must not happen is a .bak left in BepInEx\data\, or the folder the player is told
+        // to back up fills with copies of every save that took this path
         private static void KeepAsPrevious(string backup, string previous)
         {
             try
@@ -223,29 +180,22 @@ namespace AS2.ModApi
             }
         }
 
-        /// <summary>
-        /// Moves a file that could not be parsed aside, so the mod can start fresh without deleting
-        /// whatever the player had.
-        ///
-        /// <para>
-        /// The instinct on a corrupt data file is to overwrite it. Resist it. The file is the only
-        /// copy of something the player spent time on, "corrupt" often means one bad character in an
-        /// otherwise complete file, and a mod that silently deletes it is a mod nobody trusts twice.
-        /// This renames it to <c>&lt;name&gt;.&lt;timestamp&gt;.bad</c> and keeps the most recent
-        /// few, so a repeated failure cannot fill the folder either.
-        /// </para>
-        ///
-        /// <para>
-        /// The timestamp carries fractional seconds, which is not decoration. <see
-        /// cref="TrimQuarantined"/> decides what to drop by sorting the names, so the names have to
-        /// sort into the order they were made. A whole-second stamp does not: several failures in
-        /// one second collide, and disambiguating them with a numeric suffix makes it worse, because
-        /// '-' sorts before '.' and the un-suffixed name -- the oldest of the group -- ends up last.
-        /// The first version of this did exactly that and trimmed the newest copy every time.
-        /// </para>
-        ///
-        /// <para>Returns the path it was moved to, or null when there was nothing to move.</para>
-        /// </summary>
+        /// <summary>Moves a file that could not be parsed aside, so the mod can start fresh</summary>
+        // The instinct on a corrupt data file is to overwrite it. Resist it
+        // The file is the only copy of something the player spent time on, "corrupt" often means one
+        // bad character in an otherwise complete file, and a mod that silently deletes it is a mod
+        // nobody trusts twice
+        // Renames to <name>.<timestamp>.bad and keeps 5, so a repeated failure cannot fill the folder
+        //
+        // The timestamp carries fractional seconds, which is not decoration
+        // <see cref="TrimQuarantined"/> decides what to drop by sorting the names, so the names have
+        // to sort into the order they were made
+        // A whole-second stamp does not: several failures in one second collide, and a numeric
+        // suffix to disambiguate makes it worse, because '-' sorts before '.' and the un-suffixed
+        // name (the oldest of the group) ends up last
+        // The first version did exactly that and trimmed the newest copy every time
+        //
+        // Returns the path it moved to, or null when there was nothing to move
         public static string Quarantine(string path)
         {
             try
@@ -278,7 +228,7 @@ namespace AS2.ModApi
             }
         }
 
-        /// <summary>Drops the oldest quarantined copies past <see cref="MaxQuarantined"/>.</summary>
+        /// <summary>Drops the oldest quarantined copies past <see cref="MaxQuarantined"/></summary>
         private static void TrimQuarantined(string path)
         {
             try

@@ -5,19 +5,14 @@ using LuaInterface;
 
 namespace AS2.ModApi
 {
-    /// <summary>
-    /// The Harmony patches behind <see cref="AS2Events"/>.
-    ///
-    /// Every target is looked up through AccessTools by name and patched individually, rather than
-    /// with [HarmonyPatch] attributes and PatchAll. That is deliberate: the community patch ships a
-    /// modified Assembly-CSharp and may rename or re-sign a method in a future release. Attribute
-    /// patching would throw during PatchAll and take the whole API down with it; this way a member
-    /// that has moved costs exactly one event, logs a specific warning naming it, and leaves every
-    /// other event working.
-    ///
-    /// All signatures below were read off a live runtime dump of the shipped Assembly-CSharp rather
-    /// than guessed. See AS2.Probe.
-    /// </summary>
+    /// <summary>The Harmony patches behind <see cref="AS2Events"/></summary>
+    // Every target resolves through AccessTools by name and is patched on its own, not with
+    // [HarmonyPatch] attributes and PatchAll
+    // The community patch ships a modified Assembly-CSharp and may rename a method. Attribute
+    // patching throws during PatchAll and takes the whole API down with it
+    // This way a moved member costs exactly one event, logs a warning naming it, and leaves the
+    // rest working
+    // Every signature here was read off a live runtime dump, not guessed. See AS2.Probe
     internal static class Patches
     {
         internal static void ApplyAll(Harmony harmony)
@@ -66,17 +61,14 @@ namespace AS2.ModApi
                   kind == SelectorKind.Skin ? nameof(SkinSelectionChanged) : nameof(ModeSelectionChanged));
         }
 
-        /// <summary>
-        /// LuaSandbox.NewLua(string name) is the single factory every Lua state in the game is born
-        /// from; a runtime probe confirmed it is called with exactly "Skin" and "Mod". Patching it
-        /// is what lets AS2Events.LuaStateCreated replace both of the game's Messenger broadcasts
-        /// and the reflection into LuaMods' private 'lua' field.
-        ///
-        /// This being a *postfix* is load-bearing beyond needing __result. NewLua sandboxes the
-        /// state before returning it (SecureLuaFunctions, Sandboxify, LoadSafeTypes), so running
-        /// after it is what makes LuaStateCreated hand subscribers a sandboxed state rather than a
-        /// raw interpreter. Do not move this earlier in the call, and do not patch Sandboxify.
-        /// </summary>
+        /// <summary>Patches LuaSandbox.NewLua, the one factory every Lua state is born from</summary>
+        // A runtime probe confirmed it is called with exactly "Skin" and "Mod"
+        // Patching it lets AS2Events.LuaStateCreated replace both of the game's Messenger
+        // broadcasts and the reflection into LuaMods' private 'lua' field
+        // Being a postfix is load-bearing beyond needing __result: NewLua sandboxes the state
+        // before returning (SecureLuaFunctions, Sandboxify, LoadSafeTypes), so running after it is
+        // what hands subscribers a sandboxed state rather than a raw interpreter
+        // Do not move this earlier in the call, and do not patch Sandboxify
         private static void WireLuaFactory(Harmony harmony)
         {
             Type sandbox = AccessTools.TypeByName("LuaSandbox");

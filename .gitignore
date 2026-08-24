@@ -3,3 +3,6 @@ obj/
 build/
 *.user
 memory/
+docs/superpowers/
+docs/*.md
+AGENTS.md

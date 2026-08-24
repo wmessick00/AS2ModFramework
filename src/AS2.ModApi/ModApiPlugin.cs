@@ -6,17 +6,12 @@ using UnityEngine;
 
 namespace AS2.ModApi
 {
-    /// <summary>
-    /// Loads the shared API and applies its patches. Mods depend on this with
-    /// [BepInDependency(ModApiPlugin.Id)] and then talk to <see cref="AS2Events"/> for the menus and
-    /// the Lua states, and <see cref="AS2GameEvents"/> for what happens during a ride.
-    ///
-    /// <para>
-    /// Only <see cref="AS2Events"/> needs anything applied here. <see cref="AS2GameEvents"/> has no
-    /// patch behind it at all -- it listens on the game's own broadcasts -- and it subscribes lazily,
-    /// on the first `+=`, so a player with no mod that wants a ride event has no listener for one.
-    /// </para>
-    /// </summary>
+    /// <summary>Loads the shared API and applies its patches</summary>
+    // Mods depend on this with [BepInDependency(ModApiPlugin.Id)], then use AS2Events for the menus
+    // and the Lua states, and AS2GameEvents for what happens during a ride
+    // Only AS2Events needs anything applied here
+    // AS2GameEvents has no patch behind it at all, and it subscribes lazily on the first +=, so a
+    // player with no mod wanting a ride event has no listener for one
     [BepInPlugin(Id, Name, Version)]
     public sealed class ModApiPlugin : BaseUnityPlugin
     {
@@ -24,19 +19,16 @@ namespace AS2.ModApi
         public const string Name = "Audiosurf 2 Mod API";
         public const string Version = "0.2.1";
 
-        /// <summary>
-        /// Exposed statically so the rest of the assembly can log without threading a reference
-        /// through every call. BepInEx gives each plugin its own tagged source, so these lines are
-        /// attributed to the API rather than to whichever mod happened to trigger them.
-        ///
-        /// Built here rather than assigned from Logger in Awake, because every public type in this
-        /// assembly logs through it and they are all reachable before Awake runs. A plugin that
-        /// calls AS2ModMenu.Register or AS2Paths.DataFile without declaring
-        /// [BepInDependency(ModApiPlugin.Id)] loads in whatever order the chainloader picked, and
-        /// the dependency attribute is a convention this API cannot enforce. A null here would
-        /// answer that mistake with a NullReferenceException thrown from inside the framework,
-        /// which is a bad way to learn about a missing attribute.
-        /// </summary>
+        /// <summary>The log source, so the rest of the assembly logs without threading a reference</summary>
+        // BepInEx tags each plugin's source, so these lines are attributed to the API and not to
+        // whichever mod triggered them
+        // Built here rather than assigned from Logger in Awake, because every public type in this
+        // assembly logs through it and they are all reachable before Awake runs
+        // A plugin calling AS2ModMenu.Register or AS2Paths.DataFile without declaring
+        // [BepInDependency(ModApiPlugin.Id)] loads in whatever order the chainloader picked, and
+        // the attribute is a convention this API cannot enforce
+        // A null here answers that mistake with a NullReferenceException from inside the framework,
+        // which is a bad way to learn about a missing attribute
         internal static readonly ManualLogSource Log = BepInEx.Logging.Logger.CreateLogSource(Name);
 
         private Harmony _harmony;

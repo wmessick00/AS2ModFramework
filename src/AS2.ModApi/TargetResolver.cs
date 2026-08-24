@@ -6,16 +6,16 @@ using BepInEx;
 
 namespace AS2.ModApi
 {
-    /// <summary>A skin or mode folder on disk.</summary>
+    /// <summary>A skin or mode folder on disk</summary>
     public sealed class Target
     {
-        /// <summary>Storage key: path relative to the game root, forward slashes, no leading slash.</summary>
+        /// <summary>Storage key: path relative to the game root, forward slashes, no leading slash</summary>
         public string Key;
 
-        /// <summary>Absolute path of the skin/mode folder.</summary>
+        /// <summary>Absolute path of the skin/mode folder</summary>
         public string FolderPath;
 
-        /// <summary>Folder name, suitable as a display title.</summary>
+        /// <summary>Folder name, suitable as a display title</summary>
         public string Name;
 
         public SelectorKind Kind;
@@ -23,20 +23,19 @@ namespace AS2.ModApi
         public override string ToString() { return Key; }
     }
 
-    /// <summary>
-    /// Owns "where is the game" and "how do I name a skin or mode folder".
-    ///
-    /// Keys are the currency of the whole API: they are what the game's relative paths normalise
-    /// into, and what mods should use to store per-skin or per-mode data. The folder shapes that
-    /// must all key correctly (see RingDesignManager.FindSkins and ModeSelect.GetModFolders in the
-    /// decompiled game):
-    ///
-    ///   skins/&lt;name&gt;                 plain local skin
-    ///   skins/&lt;steamid&gt;/&lt;name&gt;      Steam Workshop item (container folder name is all digits)
-    ///   mods/&lt;mode&gt;/skins/&lt;name&gt;     skin dedicated to one mode
-    ///
-    /// plus mods/&lt;name&gt; and mods/&lt;steamid&gt;/&lt;name&gt; for modes.
-    /// </summary>
+    // Folder shapes that must all key correctly
+    // ===========================================================================================
+    // From RingDesignManager.FindSkins and ModeSelect.GetModFolders in the decompiled game
+    //   skins/<name>                 plain local skin
+    //   skins/<steamid>/<name>       Steam Workshop item, container folder name is all digits
+    //   mods/<mode>/skins/<name>     skin dedicated to one mode
+    //   mods/<name>                  plain local mode
+    //   mods/<steamid>/<name>        Steam Workshop mode
+    // Keys are the currency of the whole API -- what the game's relative paths normalise into, and
+    // what mods store per-skin and per-mode data against
+    // See the Targets and Keys wiki page
+
+    /// <summary>Owns "where is the game" and "how do I name a skin or mode folder"</summary>
     public static class TargetResolver
     {
         public const string DefaultSchemaFileName = "modsettings.lua";
@@ -102,28 +101,23 @@ namespace AS2.ModApi
             return root;
         }
 
-        /// <summary>
-        /// Normalises a game-relative path into a storage key. The game hands these out with a
-        /// leading slash (RingDesignManager.selectedSkinRelativePath is e.g. "/skins/Rainbowdrive")
-        /// and occasionally with backslashes or doubled separators.
-        ///
-        /// The casing is then resolved against the real folder on disk, because the game is not
-        /// consistent about it: browsing the selector can yield "skins/rainbowdrive" for the same
-        /// skin that reports "skins/Rainbowdrive" once a song is set up. Keys are the currency of
-        /// this API -- they end up as keys in mods' saved JSON -- so two spellings of one skin is a
-        /// bug waiting to strand somebody's settings. It survives today only because Windows paths
-        /// and the one dictionary that matters are both case-insensitive.
-        ///
-        /// A path with "." or ".." segments is rejected rather than collapsed: a key names a folder
-        /// inside the install, so anything that climbs is either the game behaving in a way we have
-        /// never seen or somebody feeding the API a path it should not follow. Every caller already
-        /// treats null as "no target".
-        ///
-        /// An absolute path is rejected for the same reason. <see cref="FolderForKey"/> would catch
-        /// one on the way back in, but this is the method documented as producing a key, and a key
-        /// does not stay here: it is handed to mods, written into their saved JSON, and combined
-        /// with paths by code this API never sees. The two guards are deliberately symmetric.
-        /// </summary>
+        /// <summary>Normalises a game-relative path into a storage key</summary>
+        // The game hands these out with a leading slash, and sometimes with backslashes or doubled
+        // separators (RingDesignManager.selectedSkinRelativePath is "/skins/Rainbowdrive")
+        // Casing then resolves against the real folder on disk, because the game is not consistent:
+        // browsing the selector gives "skins/rainbowdrive" for the skin that reports
+        // "skins/Rainbowdrive" once a song is set up
+        // Keys end up in mods' saved JSON, so two spellings of one skin strands somebody's settings
+        // It survives today only because Windows paths and the one dictionary that matters are both
+        // case-insensitive
+        //
+        // A path with "." or ".." segments is rejected, not collapsed. A key names a folder inside
+        // the install, so anything that climbs is either the game behaving in a way nobody has seen
+        // or somebody feeding the API a path it should not follow
+        // An absolute path is rejected for the same reason
+        // <see cref="FolderForKey"/> would catch one on the way back in, but this is the method
+        // documented as producing a key, and a key does not stay here -- it is handed to mods and
+        // combined with paths by code this API never sees. The two guards are symmetric on purpose
         public static string Normalize(string relativePath)
         {
             if (Str.IsBlank(relativePath)) return null;
@@ -151,7 +145,7 @@ namespace AS2.ModApi
             return Canonicalize(s);
         }
 
-        /// <summary>Whether any segment of a forward-slashed key is "." or "..".</summary>
+        /// <summary>Whether any segment of a forward-slashed key is "." or ".."</summary>
         private static bool HasDotSegment(string key)
         {
             foreach (string part in key.Split('/'))
@@ -170,23 +164,18 @@ namespace AS2.ModApi
         /// </summary>
         private const int MaxCachedKeys = 4096;
 
-        /// <summary>
-        /// Rewrites each segment of a key to the casing the folder actually has on disk. A key that
-        /// does not correspond to a real folder is returned unchanged, so this can never turn a
-        /// usable key into null.
-        ///
-        /// **Only successful resolutions are cached.** A key that did not resolve is walked again
-        /// next time, which costs one directory listing and buys the case that actually happens: a
-        /// Steam Workshop item still downloading when something first asks about it. Caching that
-        /// failure would pin the caller's own spelling for the rest of the process -- exactly the
-        /// fork in a mod's saved JSON this method exists to prevent, and it would defeat it in the
-        /// one session where the folder appeared late.
-        ///
-        /// Successes need no equivalent treatment. A folder already on disk does not change how it
-        /// spells itself mid-session, and a rename produces a different key, which is a different
-        /// cache entry and so a fresh walk. A case-only rename is the sole stale case left, and on
-        /// Windows both spellings name the same folder, so it costs nothing but the spelling.
-        /// </summary>
+        /// <summary>Rewrites each segment of a key to the casing the folder has on disk</summary>
+        // A key with no real folder comes back unchanged, so this never turns a usable key into null
+        // Only successful resolutions are cached
+        // A key that did not resolve is walked again next time. That costs one directory listing and
+        // buys the case that actually happens -- a Workshop item still downloading when something
+        // first asks about it
+        // Caching the failure would pin the caller's own spelling for the rest of the process, which
+        // is the fork in saved JSON this method exists to prevent
+        // Successes need no equivalent. A folder on disk does not change how it spells itself
+        // mid-session, and a rename is a different key, so a different cache entry and a fresh walk
+        // A case-only rename is the one stale case left, and on Windows both spellings name the
+        // same folder
         private static string Canonicalize(string key)
         {
             lock (CanonicalCache)
@@ -251,20 +240,16 @@ namespace AS2.ModApi
             }
         }
 
-        /// <summary>
-        /// The absolute folder a key names, or null if the key does not land inside the game root.
-        ///
-        /// Keys are untrusted input on the way back in: they come out of mods' saved JSON and are
-        /// built by third-party plugins from whatever a skin or a player handed them.
-        /// <see cref="KeyForFolder"/> only ever emits contained keys, so this is that same check in
-        /// the other direction -- without it a ".." key, or a rooted one like "C:/Windows" that
-        /// Path.Combine returns whole and throws the game root away, resolves outside the install.
-        ///
-        /// The string test is necessary and not sufficient. A key can name a folder that is spelled
-        /// inside the install and is a junction to somewhere else entirely, which every path
-        /// operation below this point would follow without complaint; see
-        /// <see cref="PathGuard.LinkedSegment"/>.
-        /// </summary>
+        /// <summary>The absolute folder a key names, or null when it lands outside the game root</summary>
+        // Keys are untrusted on the way back in. They come out of mods' saved JSON, built by
+        // third-party plugins from whatever a skin or a player handed them
+        // <see cref="KeyForFolder"/> only ever emits contained keys, so this is the same check in
+        // the other direction
+        // Without it a ".." key, or a rooted one like "C:/Windows" that Path.Combine returns whole
+        // and throws the game root away, resolves outside the install
+        // The string test is necessary and not sufficient. A key can name a folder spelled inside
+        // the install that is a junction elsewhere, which every path operation below would follow
+        // (see <see cref="PathGuard.LinkedSegment"/>)
         public static string FolderForKey(string key)
         {
             if (Str.IsBlank(key)) return null;
@@ -314,14 +299,11 @@ namespace AS2.ModApi
             catch { return false; }
         }
 
-        /// <summary>
-        /// Every skin and mode folder that ships <paramref name="fileName"/>, skins first, each
-        /// group sorted by name.
-        ///
-        /// <paramref name="fileName"/> must be a plain file name. An absolute one would make the
-        /// existence test below true for every folder inspected, so this would answer "all of
-        /// them" -- a wrong answer that looks exactly like a working one.
-        /// </summary>
+        /// <summary>Every skin and mode folder that ships <paramref name="fileName"/></summary>
+        // Skins first, each group sorted by name
+        // <paramref name="fileName"/> must be a plain file name. An absolute one makes the existence
+        // test below true for every folder inspected, so this answers "all of them" -- a wrong
+        // answer that looks exactly like a working one
         public static List<Target> Enumerate(string fileName)
         {
             var found = new List<Target>();
@@ -350,25 +332,22 @@ namespace AS2.ModApi
             return found;
         }
 
-        /// <summary>
-        /// Scans one container directory a single level deep, and one level deeper again through
-        /// all-digit Workshop containers. Returns every candidate folder inspected (not just the
-        /// matches), so callers can walk further down.
-        ///
-        /// An all-digit name is a hint and not a verdict. Steam names a Workshop container after the
-        /// item's numeric id, but nothing stops an author naming a plain skin or mode folder
-        /// "2024" or "7", and this once read that name as "container" and looked only inside --
-        /// so such a folder never reached <see cref="Consider"/> at all and vanished from every
-        /// list, silently. A digit-named folder is therefore offered as a target and then descended
-        /// into as well. Offering a real Workshop container costs one File.Exists that comes back
-        /// false, because a container carries no schema of its own; the name alone cannot tell the
-        /// two apart, but the file can.
-        ///
-        /// The container itself is checked for being a link because it is the one path here that
-        /// does not arrive through <see cref="SafeSubdirectories"/>: skins\, mods\ and a mode's own
-        /// skins\ are all composed rather than listed. KeyForFolder would refuse whatever came back
-        /// anyway, but only after this had already walked somebody else's disk.
-        /// </summary>
+        /// <summary>Scans one container a level deep, and a level deeper through digit-named ones</summary>
+        // Returns every candidate folder inspected, not just the matches, so callers walk further down
+        // #33 -- an all-digit name is a hint and not a verdict
+        // Steam names a Workshop container after the item's numeric id, but nothing stops an author
+        // naming a plain skin or mode folder "2024" or "7"
+        // This once read that name as "container" and looked only inside, so such a folder never
+        // reached <see cref="Consider"/> and vanished from every list, silently
+        // A digit-named folder is now offered as a target and descended into as well
+        // Offering a real container costs one File.Exists that comes back false, because a container
+        // carries no schema of its own. The name alone cannot tell the two apart, but the file can
+        //
+        // The container itself is link-checked because it is the one path here that does not arrive
+        // through <see cref="SafeSubdirectories"/> -- skins\, mods\ and a mode's own skins\ are
+        // composed rather than listed
+        // KeyForFolder would refuse whatever came back anyway, but only after walking somebody
+        // else's disk
         private static List<string> CollectFrom(string containerDir, SelectorKind kind, string fileName,
                                                 List<Target> into, HashSet<string> seen)
         {
