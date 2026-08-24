@@ -4,25 +4,19 @@ using HarmonyLib;
 
 namespace AS2.ModApi
 {
-    /// <summary>
-    /// Copies the game's end-of-ride totals into a <see cref="RideResult"/>.
-    ///
-    /// Every member is resolved by name through AccessTools and read with FieldInfo.GetValue. There
-    /// is no SetValue anywhere in this file and no compile-time reference to ScorecardFinal, for the
-    /// same reason Patches.cs resolves its targets by name: the community patch ships a modified
-    /// Assembly-CSharp, and a member that moves should cost one null field and one warning rather
-    /// than the whole event.
-    ///
-    /// <para>
-    /// <b>Song.GetIdentifier() is deliberately not called.</b> It looks like the obvious way to get
-    /// a stable song key, and it is a trap twice over. It memoises its answer into the song's own
-    /// `identifier` field, so calling it writes to a game object -- which is exactly what this
-    /// framework promises not to do. And on a miss it computes an MD5 over the entire audio file,
-    /// on the game thread, inside a Messenger broadcast that has no exception handler. So this reads
-    /// the `identifier` field as the game left it and lets <see cref="SongInfo.Key"/> fall back to
-    /// the path when it is null.
-    /// </para>
-    /// </summary>
+    /// <summary>Copies the game's end-of-ride totals into a <see cref="RideResult"/></summary>
+    // Every member resolves by name through AccessTools and reads with FieldInfo.GetValue
+    // No SetValue anywhere in this file, and no compile-time reference to ScorecardFinal, for the
+    // same reason Patches.cs resolves by name: the patch ships a modified Assembly-CSharp, and a
+    // member that moves should cost one null field and one warning, not the whole event
+    //
+    // Song.GetIdentifier() is deliberately not called. It looks like the obvious way to a stable
+    // song key and it is a trap twice over:
+    //   -it memoises into the song's own identifier field, so calling it writes to a game object
+    //   -on a miss it computes an MD5 over the whole audio file, on the game thread, inside a
+    //    Messenger broadcast with no exception handler
+    // So this reads the identifier field as the game left it, and lets <see cref="SongInfo.Key"/>
+    // fall back to the path when it is null
     internal static class ScorecardReader
     {
         private static bool _resolved;

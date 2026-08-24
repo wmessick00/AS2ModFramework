@@ -34,14 +34,10 @@ namespace AS2.ModApi
         /// <summary>Length of the ride in seconds, or 0 when the game did not report it</summary>
         public float SongSeconds { get; }
 
-        /// <summary>
-        /// True when a mode script finalised the score itself rather than the game doing it.
-        ///
-        /// Custom modes scoring themselves is a designed game feature -- the game gives Lua
-        /// SetLocalScore and SetGlobalScore and keeps a ScoreManager.modInChargeOfScoring flag. A
-        /// mod that compares scores across rides should not compare one of these against a
-        /// normally-scored ride.
-        /// </summary>
+        /// <summary>True when a mode script finalised the score itself, not the game</summary>
+        // A designed game feature: Lua gets SetLocalScore and SetGlobalScore, and the game keeps a
+        // ScoreManager.modInChargeOfScoring flag
+        // A mod comparing scores across rides must not compare one of these against a normal ride
         public bool ScoredByMode { get; }
 
         internal RideResult(SongInfo song, int score, int greysHit, int colorsHit, int numJumps,
