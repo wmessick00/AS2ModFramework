@@ -2,84 +2,63 @@ using System.Reflection;
 
 namespace AS2.ModApi
 {
-    /// <summary>What <c>AS2Ui.BeginScroll</c> should do about the one shared scroll view.</summary>
+    /// <summary>What <c>AS2Ui.BeginScroll</c> should do about the one shared scroll view</summary>
     internal struct ScrollBegin
     {
-        /// <summary>Whether the caller should open a scroll view of its own.</summary>
+        /// <summary>Whether the caller should open a scroll view of its own</summary>
         internal bool Open;
 
-        /// <summary>What to warn about, or null when nothing is wrong.</summary>
+        /// <summary>What to warn about, or null when nothing is wrong</summary>
         internal string Warning;
     }
 
-    /// <summary>What <c>AS2Ui.EndScroll</c> should do about the one shared scroll view.</summary>
+    /// <summary>What <c>AS2Ui.EndScroll</c> should do about the one shared scroll view</summary>
     internal struct ScrollEnd
     {
-        /// <summary>Whether the caller should close the scroll view and draw the scrollbar.</summary>
+        /// <summary>Whether the caller should close the scroll view and draw the scrollbar</summary>
         internal bool Close;
 
-        /// <summary>What to warn about, or null when nothing is wrong.</summary>
+        /// <summary>What to warn about, or null when nothing is wrong</summary>
         internal string Warning;
     }
 
-    /// <summary>
-    /// Decides whose turn the one shared scroll view is, and names the mod when a turn goes wrong.
-    ///
-    /// <para>
-    /// IMGUI keeps one clip stack for the whole process, so AS2Ui can have only one scroll view open
-    /// at a time however many mods draw. The bookkeeping around that view therefore decides what one
-    /// mod's mistake costs every other mod, and it used to cost them all their scrolling: a mod whose
-    /// OnGUI returned between BeginScroll and EndScroll left a global depth counter standing, and
-    /// every mod drawn after it in that frame read the standing count as "you are nesting" and was
-    /// refused a scroll view of its own. That shipped once, as issue #38.
-    /// </para>
-    ///
-    /// <para>
-    /// The fix is an owner. Each turn carries a caller token -- AS2Ui passes the calling assembly,
-    /// which is the mod's own DLL -- and the view belongs to whoever opened it. A Begin from a
-    /// different mod can only mean the owner never closed its view, so the owner's turn is dropped,
-    /// the warning names the owner, and the new caller is given a real scroll view. A mod can now
-    /// only break its own scrolling.
-    /// </para>
-    ///
-    /// <para>
-    /// Tokens are compared by reference and never held beyond the turn, so a mod that unloads leaves
-    /// nothing behind here. A name is read off a token only to write a warning, which keeps the draw
-    /// path free of allocation.
-    /// </para>
-    ///
-    /// <para>
-    /// Nothing here locks, because OnGUI runs on the main thread only. That is the one assumption in
-    /// this file, and it is the same one every GUI call in AS2Ui already makes.
-    /// </para>
-    ///
-    /// <para>
-    /// This file holds no Unity and no BepInEx, so tests\AS2.ModApi.Tests compiles it and drives it
-    /// cold. AS2Ui cannot go there -- it is IMGUI from end to end -- and these rules are the half a
-    /// reader cannot check by looking. See ScrollChecks.cs.
-    /// </para>
-    /// </summary>
+    // Scroll view ownership
+    // ===========================================================================================
+    // IMGUI keeps one clip stack, so AS2Ui can have one scroll view open however many mods draw
+    // #38 -- the bookkeeping used to be a global depth counter, so a mod whose OnGUI returned
+    // between BeginScroll and EndScroll left it standing, and every mod drawn after it read that as
+    // "you are nesting" and was refused a scroll view of its own
+    // The fix is an owner: each turn carries a caller token, and AS2Ui passes the calling assembly
+    // A Begin from a different mod can only mean the owner never closed its view, so the owner's
+    // turn is dropped, the warning names the owner, and the new caller gets a real scroll view
+    // Tokens compare by reference and are never held beyond the turn, so a mod that unloads leaves
+    // nothing behind. A name is read off a token only to write a warning, so the draw path does not
+    // allocate
+    // Nothing locks. OnGUI runs on the main thread only, which is the one assumption in this file
+    // and the same one every GUI call in AS2Ui already makes
+    // No Unity and no BepInEx here, so tests\AS2.ModApi.Tests compiles it and drives it cold
+    // AS2Ui cannot go there, being IMGUI end to end, and these rules are the half a reader cannot
+    // check by looking (see ScrollChecks.cs)
+
+    /// <summary>Decides whose turn the one shared scroll view is, and names the mod on a bad turn</summary>
     internal sealed class ScrollTurns
     {
-        /// <summary>The caller that opened the view, or null when no view is open.</summary>
+        /// <summary>The caller that opened the view, or null when no view is open</summary>
         private object _owner;
 
-        /// <summary>
-        /// How many Begin calls the owner has made and not yet ended. More than one is the owner
-        /// nesting its own lists, which counts here so that the inner End closes the inner call
-        /// rather than the view the outer call opened.
-        /// </summary>
+        /// <summary>How many Begin calls the owner has made and not yet ended</summary>
+        // More than one is the owner nesting its own lists
+        // Counted here so the inner End closes the inner call, not the view the outer one opened
         private int _depth;
 
-        /// <summary>
-        /// Whether the owner's outermost Begin really opened a scroll view. Every entry point in
-        /// AS2Ui is allowed to give up and draw nothing, so "did we open one" cannot be assumed
-        /// from "was Begin called", and GUI.BeginScrollView and GUI.EndScrollView must balance
-        /// exactly or Unity logs for the rest of the session.
-        /// </summary>
+        /// <summary>Whether the owner's outermost Begin really opened a scroll view</summary>
+        // Every entry point in AS2Ui may give up and draw nothing, so "did we open one" does not
+        // follow from "was Begin called"
+        // GUI.BeginScrollView and GUI.EndScrollView must balance exactly or Unity logs for the
+        // rest of the session
         private bool _active;
 
-        /// <summary>The frame the owner opened its view in. Only a warning reads this.</summary>
+        /// <summary>The frame the owner opened its view in. Only a warning reads this</summary>
         private int _frame;
 
         /// <summary>
@@ -134,7 +113,7 @@ namespace AS2.ModApi
             _active = success;
         }
 
-        /// <summary>Gives the scroll view back, if <paramref name="caller"/> is the one holding it.</summary>
+        /// <summary>Gives the scroll view back, if <paramref name="caller"/> is the one holding it</summary>
         internal ScrollEnd End(object caller)
         {
             var turn = new ScrollEnd();
