@@ -5,16 +5,11 @@ using System.Text;
 
 namespace AS2.Bootstrap
 {
-    /// <summary>
-    /// A deliberately primitive file logger for the window before BepInEx exists.
-    ///
-    /// It cannot use UnityEngine.Debug (Unity's internal calls are not registered at doorstop time)
-    /// and it cannot use BepInEx's logger (that is what we are in the middle of starting). Once
-    /// StartBepInEx has handed off, everything else in the stack should log through BepInEx's
-    /// ManualLogSource instead -- this file only ever covers the handoff.
-    ///
-    /// Never throws. A logger that can take the game down is worse than no logger.
-    /// </summary>
+    /// <summary>A primitive file logger for the window before BepInEx exists</summary>
+    // UnityEngine.Debug is out: Unity's internal calls are not registered at doorstop time
+    // BepInEx's logger is out too, since starting BepInEx is what this is in the middle of
+    // Covers the handoff and nothing after it -- log through BepInEx's ManualLogSource from there
+    // Never throws. A logger that can take the game down is worse than no logger
     internal static class BootLog
     {
         private static string _path;
@@ -26,7 +21,7 @@ namespace AS2.Bootstrap
             if (!Directory.Exists(directory)) Directory.CreateDirectory(directory);
             _path = Path.Combine(directory, "bootstrap.log");
 
-            // Truncated every launch: this log covers one handoff and nothing else, so history is noise.
+            // Truncated every launch. This covers one handoff, so history is noise
             File.WriteAllText(_path, "", Encoding.UTF8);
         }
 
@@ -48,7 +43,7 @@ namespace AS2.Bootstrap
 
                 File.AppendAllText(_path, sb.ToString(), Encoding.UTF8);
             }
-            catch { /* best-effort by design */ }
+            catch { /* Best-effort by design */ }
         }
     }
 }
