@@ -3,30 +3,16 @@ using static AS2.Tests.Check;
 
 namespace AS2.ModApi.Tests
 {
-    /// <summary>
-    /// Regression cover for issue #38: one mod that opened a scroll view and never closed it used to
-    /// stop every other mod scrolling for the rest of the frame.
-    ///
-    /// <para>
-    /// AS2Ui keeps one scroll view, because IMGUI keeps one clip stack and every mod draws into it.
-    /// The bookkeeping around that view therefore decides what one mod's mistake costs everybody
-    /// else, which is the same class of bug as issue #16 and issue #26 in ConcurrencyChecks.cs --
-    /// shared framework state where a single misbehaving caller degrades the rest.
-    /// </para>
-    ///
-    /// <para>
-    /// The rules live in ScrollTurns rather than in AS2Ui so they can be exercised here. AS2Ui is
-    /// 1100 lines of IMGUI and cannot be compiled without Unity; the arbitration is arithmetic over
-    /// a caller token and a frame number, and needs nothing. That split follows the one AGENTS.md
-    /// describes for Str, SelectorKind and ModMenuRegistry.
-    /// </para>
-    ///
-    /// <para>
-    /// Every check below was run against the unfixed shape -- one global depth counter, healed only
-    /// when the frame number moved on -- before it was trusted. The ones that already passed against
-    /// it are here to hold the behaviour the fix had to keep.
-    /// </para>
-    /// </summary>
+    /// <summary>Regression cover for #38 -- one mod's unclosed scroll view stopped every other mod</summary>
+    // AS2Ui keeps one scroll view, because IMGUI keeps one clip stack and every mod draws into it
+    // The bookkeeping decides what one mod's mistake costs everybody else, which is the same class
+    // of bug as #16 and #26 in ConcurrencyChecks.cs
+    // The rules live in ScrollTurns rather than AS2Ui so they can be exercised here. AS2Ui is IMGUI
+    // end to end and needs Unity. The arbitration is arithmetic over a caller token and a frame
+    // number, and needs nothing
+    // Every check below was run against the unfixed shape -- one global depth counter, healed only
+    // when the frame number moved on -- before it was trusted
+    // The ones that already passed against it hold the behaviour the fix had to keep
     internal static class ScrollChecks
     {
         /// <summary>
@@ -203,7 +189,7 @@ namespace AS2.ModApi.Tests
                  (end.Warning ?? "").Contains(self.GetName().Name));
         }
 
-        /// <summary>A warning as it should read inside a failure message.</summary>
+        /// <summary>A warning as it should read inside a failure message</summary>
         private static string Quote(string warning)
         {
             return warning == null ? "<null>" : "'" + warning + "'";

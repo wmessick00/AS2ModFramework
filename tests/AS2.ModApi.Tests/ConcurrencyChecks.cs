@@ -4,24 +4,15 @@ using static AS2.Tests.Check;
 
 namespace AS2.ModApi.Tests
 {
-    /// <summary>
-    /// Regression cover for the two concurrency bugs this framework shipped and then fixed.
-    ///
-    /// <para>
-    /// Both are documented in docs/gotchas.md by issue number, and neither had a check. That is the
-    /// worst shape for a bug of this kind: the fix is a few careful lines that look like style, a
-    /// later reader has every reason to simplify them, and the failure only appears on somebody
-    /// else's machine at a timing they cannot reproduce. TargetResolver's guards have had "Regression:
-    /// issue #15/#2/#13" checks for exactly this reason; these two now do too.
-    /// </para>
-    ///
-    /// <para>
-    /// A racing check cannot prove the absence of a race. What it can do is drive the two threads
-    /// hard enough that the unfixed code fails almost every run, which is the honest bargain here:
-    /// revert either fix and these go red, which is what a regression check is for. Both were run
-    /// against the unfixed shape before being trusted.
-    /// </para>
-    /// </summary>
+    /// <summary>Regression cover for the two concurrency bugs this framework shipped and fixed</summary>
+    // #16 and #26. Neither had a check, which is the worst shape for a bug of this kind:
+    //   -the fix is a few careful lines that look like style
+    //   -a later reader has every reason to simplify them
+    //   -the failure only appears on somebody else's machine, at a timing they cannot reproduce
+    // TargetResolver's guards have had regression checks for #15, #2 and #13 for the same reason
+    // A racing check cannot prove the absence of a race. It can drive the two threads hard enough
+    // that the unfixed code fails almost every run, which is the honest bargain
+    // Revert either fix and these go red. Both were run against the unfixed shape first
     internal static class ConcurrencyChecks
     {
         /// <summary>

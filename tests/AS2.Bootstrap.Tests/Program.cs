@@ -6,23 +6,17 @@ using static AS2.Tests.Check;
 
 namespace AS2.Bootstrap.Tests
 {
-    /// <summary>
-    /// Cold checks for the doorstop_config.ini repair in AS2.Bootstrap.
-    ///
-    /// This file decides whether any mod loads at all, and it belongs to the community patch: the
-    /// patch ships it, a patch update rewrites it, and the old ModSettings build re-asserts itself
-    /// into it three times a session. So the repair has two jobs that pull against each other --
-    /// point the target key at this bootstrap, and change nothing else, ever. Mis-reading the key
-    /// would silently disable modding; truncating before writing would cost the player the mod
-    /// loader and the patch updater together on a power loss.
-    ///
-    /// None of it needs Unity, BepInEx or the game. Until these checks existed the only way to
-    /// exercise any of it was to launch the game and read bootstrap.log, which is exactly the manual
-    /// round AGENTS.md says to spend on things that really do need the game.
-    ///
-    /// Run with `dotnet run --project tests/AS2.Bootstrap.Tests`. Exit code 0 means everything
-    /// passed.
-    /// </summary>
+    /// <summary>Cold checks for the doorstop_config.ini repair in AS2.Bootstrap</summary>
+    // This file decides whether any mod loads at all, and it belongs to the community patch
+    // The patch ships it, a patch update rewrites it, and the old ModSettings build re-asserts
+    // itself into it 3 times a session
+    // So the repair has two jobs that pull against each other -- point the target key at this
+    // bootstrap, and change nothing else, ever
+    // Mis-reading the key silently disables modding. Truncating before writing costs the player the
+    // mod loader and the patch updater together on a power loss
+    // None of it needs Unity, BepInEx or the game. Before these checks the only way to exercise any
+    // of it was to launch the game and read bootstrap.log
+    // Run with `dotnet run --project tests/AS2.Bootstrap.Tests`. Exit code 0 means all passed
     internal static class Program
     {
         /// <summary>
@@ -308,7 +302,7 @@ namespace AS2.Bootstrap.Tests
             Same("a longer rewrite lands whole", File.ReadAllText(path), "targetAssembly=" + Target + NL);
         }
 
-        /// <summary>Read, retarget and write back over one handle, as EnsureDoorstopTarget does.</summary>
+        /// <summary>Read, retarget and write back over one handle, as EnsureDoorstopTarget does</summary>
         private static void Rewrite(string path)
         {
             string[] lines;
@@ -438,7 +432,7 @@ namespace AS2.Bootstrap.Tests
 
         // ---- Fixtures and helpers --------------------------------------------------------------------
 
-        /// <summary>A game folder of its own for each check, so none of them can see another's file.</summary>
+        /// <summary>A game folder of its own for each check, so none of them can see another's file</summary>
         private static string NewRoot()
         {
             string dir = Path.Combine(_stem, "root" + (++_roots));
@@ -446,7 +440,7 @@ namespace AS2.Bootstrap.Tests
             return dir;
         }
 
-        /// <summary>The handle EnsureDoorstopTarget opens, opened the same way.</summary>
+        /// <summary>The handle EnsureDoorstopTarget opens, opened the same way</summary>
         private static FileStream Open(string path)
         {
             return new FileStream(path, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
@@ -472,7 +466,7 @@ namespace AS2.Bootstrap.Tests
             Same(what, Join(actual), Join(expected));
         }
 
-        /// <summary>Lines as one printable string, so a failure shows which line differs.</summary>
+        /// <summary>Lines as one printable string, so a failure shows which line differs</summary>
         private static string Join(string[] lines)
         {
             return lines == null ? "<null>" : string.Join(" | ", lines);

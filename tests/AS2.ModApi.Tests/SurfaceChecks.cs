@@ -5,28 +5,22 @@ using static AS2.Tests.Check;
 
 namespace AS2.ModApi.Tests
 {
-    /// <summary>
-    /// Cold checks for the game event surface: the arity table, and the two structural properties
-    /// that keep it closed and read-only.
-    ///
-    /// <para>
-    /// The arity checks are the ones with teeth. All four of the game's Messenger classes share a
-    /// single Dictionary&lt;string,Delegate&gt;, so a name has exactly one legal delegate type across
-    /// the whole process. Subscribing with the wrong argument count does not fail politely in our
-    /// own corner -- the game's own AddListener calls on that name start throwing, and its own
-    /// broadcasts throw too. That is a bug this framework would cause in somebody else's code, and
-    /// it cannot be found by reading. So the expected shapes are written out again here, by hand,
-    /// off the IL read of the shipped Assembly-CSharp. Two independent spellings that have to agree
-    /// is the whole value; copying them from MessageTable would be worth nothing.
-    /// </para>
-    ///
-    /// <para>
-    /// The source scans cover what tools\verify-invariants.ps1 cannot: that script reads the built
-    /// DLL, which needs the game installed to produce, and CI has no game. These run everywhere and
-    /// catch the same mistakes earlier and more cheaply. They are not a substitute for it -- a scan
-    /// of source text is weaker than a walk of real IL -- they are the fast half of the same idea.
-    /// </para>
-    /// </summary>
+    /// <summary>Cold checks for the game event surface: the arity table, and two structural rules</summary>
+    // The arity checks are the ones with teeth
+    // All four of the game's Messenger classes share one Dictionary<string,Delegate>, so a name has
+    // exactly one legal delegate type across the process
+    // A wrong argument count does not fail politely in our corner -- the game's own AddListener
+    // calls on that name start throwing, and its own broadcasts throw too
+    // That is a bug this framework causes in somebody else's code, and reading cannot find it
+    // So the expected shapes are written out again here by hand, off the IL read of the shipped
+    // Assembly-CSharp
+    // Two independent spellings that have to agree is the whole value. Copying them from
+    // MessageTable would be worth nothing
+    //
+    // The source scans cover what tools\verify-invariants.ps1 cannot: that script reads the built
+    // DLL, which needs the game installed, and CI has no game
+    // Not a substitute -- a scan of source text is weaker than a walk of real IL -- but the fast
+    // half of the same idea, and it catches the same mistakes earlier
     internal static class SurfaceChecks
     {
         /// <summary>
@@ -236,15 +230,12 @@ namespace AS2.ModApi.Tests
             return null;
         }
 
-        /// <summary>
-        /// The compilable text of a C# file, with comments and string literals blanked out.
-        ///
-        /// Both scans below search for an identifier, and this repo documents itself heavily: the
-        /// first version of this file searched the raw text and reported MessageTable.cs for
-        /// explaining what Messenger&lt;T&gt; is. Prose that names the thing it is warning you about
-        /// is not a use of it. Blanking rather than deleting keeps every offset and line intact, so
-        /// a future check can still report a position.
-        /// </summary>
+        /// <summary>The compilable text of a C# file, comments and string literals blanked out</summary>
+        // Both scans below search for an identifier, and this repo documents itself heavily
+        // The first version searched the raw text and reported MessageTable.cs for explaining what
+        // Messenger<T> is. Prose that names the thing it warns about is not a use of it
+        // Blanking rather than deleting keeps every offset and line intact, so a future check can
+        // still report a position
         private static string CodeOnly(string text)
         {
             char[] outBuf = text.ToCharArray();

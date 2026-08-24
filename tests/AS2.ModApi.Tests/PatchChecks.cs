@@ -4,23 +4,15 @@ using static AS2.Tests.Check;
 
 namespace AS2.ModApi.Tests
 {
-    /// <summary>
-    /// Cover for how <see cref="Patches"/> behaves when the game is not the shape it expected.
-    ///
-    /// <para>
-    /// Patches.cs is the mod-loading mechanism, and its whole design is a bet about failure: every
-    /// target is resolved by name through AccessTools and patched one at a time, rather than with
-    /// [HarmonyPatch] attributes and PatchAll, so that a member the community patch renamed costs
-    /// one event and one warning instead of taking the entire API down during PatchAll.
-    /// </para>
-    ///
-    /// <para>
-    /// That bet had no check behind it. It is also the hardest thing in the repo to verify by hand,
-    /// because reproducing it means waiting for a community patch to rename something. The shims in
-    /// Shims.cs resolve names against this assembly, so hiding one is a faithful stand-in for a
-    /// member that has moved.
-    /// </para>
-    /// </summary>
+    /// <summary>Cover for how <see cref="Patches"/> behaves when the game is the wrong shape</summary>
+    // Patches.cs is the mod-loading mechanism, and its design is a bet about failure
+    // Every target resolves by name through AccessTools and is patched one at a time, not with
+    // [HarmonyPatch] attributes and PatchAll, so a renamed member costs one event and one warning
+    // instead of taking the whole API down during PatchAll
+    // That bet had no check behind it, and it is the hardest thing in the repo to verify by hand --
+    // reproducing it means waiting for a community patch to rename something
+    // The shims in Shims.cs resolve names against this assembly, so hiding one is a faithful
+    // stand-in for a member that moved
     internal static class PatchChecks
     {
         /// <summary>

@@ -7,18 +7,14 @@ using static AS2.Tests.Check;
 
 namespace AS2.ModApi.Tests
 {
-    /// <summary>
-    /// Cold checks for TargetResolver's path and key logic.
-    ///
-    /// These matter most for the escape rejections. FolderForKey and Normalize are what stop a
-    /// key -- which is built from a Steam Workshop folder name, or read back out of some mod's
-    /// saved JSON -- from naming a location outside the install, whether it says so in the path or
-    /// hides it behind a junction. That is exactly the kind of guard a later refactor removes by
-    /// accident, and without this it would take a manual launch and a careful read of the log to
-    /// notice.
-    ///
-    /// Run with `dotnet run --project tests/AS2.ModApi.Tests`. Exit code 0 means everything passed.
-    /// </summary>
+    /// <summary>Cold checks for TargetResolver's path and key logic</summary>
+    // These matter most for the escape rejections
+    // FolderForKey and Normalize stop a key naming a location outside the install, whether the path
+    // says so or hides it behind a junction
+    // A key is built from a Workshop folder name, or read back out of some mod's saved JSON
+    // Exactly the kind of guard a later refactor removes by accident, and without this it would
+    // take a manual launch and a careful read of the log to notice
+    // Run with `dotnet run --project tests/AS2.ModApi.Tests`. Exit code 0 means all passed
     internal static class Program
     {
         private static readonly List<string> Junctions = new List<string>();
@@ -263,21 +259,17 @@ namespace AS2.ModApi.Tests
             True("Enumerate says why it refused a device name", ModApiPlugin.Log.Mentions("device name"));
         }
 
-        /// <summary>
-        /// The hazard itself, probed rather than assumed, because how far it reaches depends on the
-        /// machine.
-        ///
-        /// Win32 has always mapped a device name to the device whatever extension follows it, and
-        /// Microsoft still documents "NUL.txt" that way. Windows 11 build 26200 does not: there,
-        /// "nul.json" and "con.txt" are ordinary files -- checked through both cmd.exe and
-        /// File.WriteAllText -- while a bare "nul" still swallows the write. A player on Windows 10
-        /// therefore loses the data that a player on 26200 keeps.
-        ///
-        /// That split is the argument for the guard rather than a reason to doubt it: a file name is
-        /// not something a mod can test on its author's machine and rely on. So this reports which
-        /// machine it ran on and never fails. A skip means this build kept the file; the rejections
-        /// below hold either way, because the guard refuses the name and does not ask the OS.
-        /// </summary>
+        /// <summary>The hazard itself, probed rather than assumed</summary>
+        // How far it reaches depends on the machine:
+        //     Microsoft's docs, and Windows 10    nul -> device, nul.json -> device
+        //     Windows 11 build 26200              nul -> device, nul.json -> ordinary file
+        // Checked on 26200 through cmd.exe and File.WriteAllText together
+        // A player on Windows 10 loses the data a player on 26200 keeps
+        // That split is the argument for the guard, not a reason to doubt it -- a file name is not
+        // something a mod can test on its author's machine and rely on
+        // So this reports which machine it ran on and never fails
+        // A skip means this build kept the file. The rejections below hold either way, because the
+        // guard refuses the name and does not ask the OS
         private static void DeviceWritesReallyDisappear()
         {
             foreach (string name in new[] { "nul.json", "nul" })
@@ -352,15 +344,12 @@ namespace AS2.ModApi.Tests
 
         // ---- Regression: issue #13 -------------------------------------------------------------
 
-        /// <summary>
-        /// Containment used to be decided by string comparison alone, which cannot see a junction:
-        /// "&lt;root&gt;\skins\Linked" reads as inside the install whatever it really points at, and
-        /// every path call underneath -- GetDirectories, File.Exists, whatever a mod does with the
-        /// folder afterwards -- follows it out without a word. Creating a junction on Windows needs
-        /// no elevation, so this is not a privileged trick either.
-        ///
-        /// This runs last because it adds link fixtures the earlier counts do not expect.
-        /// </summary>
+        /// <summary>A junction under skins\ or mods\ is refused, not followed</summary>
+        // #13 -- containment used to be string comparison alone, which cannot see a junction
+        // "<root>\skins\Linked" reads as inside the install whatever it points at, and every path
+        // call underneath follows it out without a word
+        // Creating a junction on Windows needs no elevation, so this is not a privileged trick
+        // Runs last, because it adds link fixtures the earlier counts do not expect
         private static void LinkedFoldersAreNotFollowed()
         {
             // What the links point at: a schema at the top, and one a level down, so both a link at
@@ -423,18 +412,13 @@ namespace AS2.ModApi.Tests
 
         // ---- Regression: issue #33 -------------------------------------------------------------
 
-        /// <summary>
-        /// A skin or mode whose folder name happens to be all digits.
-        ///
-        /// Steam names a Workshop container after the item's numeric id, and CollectFrom read that
-        /// name as proof of what the folder was: it looked inside such a folder and never offered
-        /// the folder itself as a target. Nothing stops an author numbering a plain skin or mode
-        /// folder, though, and one that ships its schema directly rather than a level down was
-        /// dropped from every list Enumerate builds -- with no log line to say so.
-        ///
-        /// This runs after the link checks because it adds fixtures the earlier counts do not
-        /// expect.
-        /// </summary>
+        /// <summary>A skin or mode whose folder name happens to be all digits</summary>
+        // #33 -- Steam names a Workshop container after the item's numeric id, and CollectFrom read
+        // that name as proof of what the folder was
+        // It looked inside such a folder and never offered the folder itself as a target
+        // Nothing stops an author numbering a plain skin or mode folder, and one shipping its schema
+        // directly was dropped from every list Enumerate builds, with no log line to say so
+        // Runs after the link checks, because it adds fixtures the earlier counts do not expect
         private static void DigitNamedFoldersAreTargetsToo()
         {
             MakeTarget("skins/2024");                 // a numbered local skin

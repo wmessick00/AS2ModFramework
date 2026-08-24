@@ -4,14 +4,11 @@ using static AS2.Tests.Check;
 
 namespace AS2.ModApi.Tests
 {
-    /// <summary>
-    /// Cold checks for <see cref="AS2Store"/>.
-    ///
-    /// This is a player's saved data, and every failure mode here is one that loses it quietly. The
-    /// checks that matter are the ones asserting what happens when something goes wrong: a write
-    /// that fails must leave the old file intact, and an unreadable file must be kept rather than
-    /// overwritten.
-    /// </summary>
+    /// <summary>Cold checks for <see cref="AS2Store"/></summary>
+    // A player's saved data, and every failure mode here loses it quietly
+    // The checks that matter assert what happens when something goes wrong:
+    //   -a write that fails leaves the old file intact
+    //   -an unreadable file is kept, not overwritten
     internal static class StoreChecks
     {
         private static string _dir;
@@ -88,22 +85,16 @@ namespace AS2.ModApi.Tests
 
         // ---- Regression: issue #32 -------------------------------------------------------------
 
-        /// <summary>
-        /// The fallback swap doing its job: File.Replace cannot run, and the write still lands.
-        ///
-        /// <para>
-        /// Occupying <c>.prev</c> with a directory is what makes File.Replace fail here. That is a
-        /// stand-in for the cross-volume and network-share cases the fallback really exists for,
-        /// which no test can arrange on one machine -- but it is also the honest shape of the
-        /// hazard, because an unwritable <c>.prev</c> is one of the things that makes File.Replace
-        /// fail in the field. The first fix for issue #32 moved the old file aside to <c>.prev</c>,
-        /// the very name already established as unavailable, so the fallback failed for the same
-        /// reason the primary path had and the write went nowhere. Hence <c>.bak</c>, and hence this
-        /// check, which fails against that first fix.
-        /// </para>
-        ///
-        /// <para>The technique comes from PR #34, which reached the same fix independently.</para>
-        /// </summary>
+        /// <summary>The fallback swap doing its job: File.Replace cannot run, the write still lands</summary>
+        // Occupying .prev with a directory is what makes File.Replace fail here
+        // A stand-in for the cross-volume and network-share cases the fallback really exists for,
+        // which no test can arrange on one machine
+        // It is also the honest shape of the hazard: an unwritable .prev is one of the things that
+        // makes File.Replace fail in the field
+        // The first fix for #32 moved the old file aside to .prev, the name already established as
+        // unavailable, so the fallback failed for the same reason the primary path had
+        // Hence .bak, and hence this check, which fails against that first fix
+        // The technique comes from PR #34, which reached the same fix independently
         private static void TheFallbackSwapRunsWhenReplaceCannot()
         {
             string p = Path_("no-replace.json");
@@ -129,24 +120,15 @@ namespace AS2.ModApi.Tests
             }
         }
 
-        /// <summary>
-        /// The fallback swap, failing in the middle, with the player's data on the line.
-        ///
-        /// <para>
-        /// The fallback used to delete the old file and then rename the new one over it. A failure
-        /// between those two steps left nothing: the old file was already gone, and the caller's
-        /// cleanup then deleted the temp file that held the new contents. WriteAtomic reported an
-        /// ordinary failed write, so the log said nothing about the loss either.
-        /// </para>
-        ///
-        /// <para>
-        /// The fixture holds the temp file open, sharing read and write but not delete. That is
-        /// enough to make File.Replace fail -- it needs delete access on the file it moves in --
-        /// and then to make the fallback's own rename of that same file fail too, which is exactly
-        /// the mid-swap failure the old code could not survive. Nothing holds the real file, so the
-        /// step before it succeeds and the write really does get halfway.
-        /// </para>
-        /// </summary>
+        /// <summary>The fallback swap failing in the middle, with the player's data on the line</summary>
+        // The fallback used to delete the old file, then rename the new one over it
+        // A failure between those two steps left nothing: the old file was gone, and the caller's
+        // cleanup deleted the temp file holding the new contents
+        // WriteAtomic reported an ordinary failed write, so the log said nothing about the loss
+        // The fixture holds the temp file open, sharing read and write but not delete
+        // Enough to make File.Replace fail, since it needs delete access on the file it moves in,
+        // and then to make the fallback's own rename of that file fail too
+        // Nothing holds the real file, so the step before it succeeds and the write gets halfway
         private static void AFailedFallbackSwapKeepsTheOldContents()
         {
             string p = Path_("mid-swap.json");
