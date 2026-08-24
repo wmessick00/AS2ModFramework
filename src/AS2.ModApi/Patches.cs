@@ -116,10 +116,11 @@ namespace AS2.ModApi
         private static void SettingsDialogEnabled() { AS2Events.RaiseSettingsDialog(true); }
         private static void SettingsDialogDisabled() { AS2Events.RaiseSettingsDialog(false); }
 
-        /// <summary>
-        /// __0 is the 'name' argument and __result the new state. Indexed injection is used rather
-        /// than __args because BepInEx 5 ships HarmonyX 2.9.0, which predates __args.
-        /// </summary>
+        /// <summary>__0 is the 'name' argument, __result the new state</summary>
+        // Indexed injection rather than __args, which HarmonyX has carried since 2.8.0
+        // __0 names one parameter and the compiler checks its type
+        // __args boxes every argument into an object[] on every call, and this fires several times
+        // per song
         private static void NewLuaPostfix(string __0, Lua __result)
         {
             AS2Events.RaiseLuaStateCreated(__result, __0);

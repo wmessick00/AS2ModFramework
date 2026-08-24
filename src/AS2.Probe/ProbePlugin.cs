@@ -65,7 +65,8 @@ namespace AS2.Probe
         }
 
         /// <summary>Logs the kind string every Lua state is created with</summary>
-        // Indexed injection (__0), not __args -- __args needs a newer HarmonyX than BepInEx 5 ships
+        // Indexed injection (__0), not __args -- __0 names one parameter and gets a type check
+        // __args is available (HarmonyX 2.8.0 and up) and boxes every argument into an object[]
         // __result declared as object can trip Harmony's assignability check, so name the real type
         // luacontroller.cs:50 already has LuaSandbox.NewLua("Skin"), so the first parameter is a string
         private static void NewLuaPostfix(string __0)
