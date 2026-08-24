@@ -4,46 +4,28 @@ using UnityEngine;
 
 namespace AS2.ModApi
 {
-    /// <summary>
-    /// The one place in this framework that talks to the game's own event bus.
-    ///
-    /// The game carries a trimmed copy of the Unify Community Messenger, and it is public, so a mod
-    /// could subscribe to any of its ~194 message names itself. This class exists so that the
-    /// framework's *supported* surface is a closed set instead: <see cref="MessageTable"/> declares
-    /// every name and shape, this class is internal, and no public API anywhere takes a message
-    /// name. A mod cannot ask the framework for a broadcast the table does not already carry.
-    ///
-    /// <para>
-    /// <b>Nothing here broadcasts.</b> There is no Broadcast call in this file, in this class, or in
-    /// this assembly, and tools/verify-invariants.ps1 fails the release build if one appears. That
-    /// is what makes "the framework observes and cannot change what the game does" a checked fact
-    /// rather than a sentence in a README.
-    /// </para>
-    ///
-    /// <para>
-    /// <b>Subscribe once, and never unsubscribe.</b> This copy of the Messenger has no Cleanup and
-    /// no MarkAsPermanent -- I checked every method in Assembly-CSharp, and nothing outside the four
-    /// Messenger classes so much as reads the event table. So a listener survives every scene change
-    /// for the life of the process, and re-subscribing per scene would fire handlers N times.
-    /// Removing is worse than useless: OnListenerRemoved drops the key entirely when the last
-    /// listener leaves, and because the game's default broadcast mode is REQUIRE_LISTENER, that can
-    /// turn a later broadcast into a BroadcastException thrown inside the game.
-    /// </para>
-    ///
-    /// <para>
-    /// <b>Every handler catches everything.</b> Messenger.Broadcast has no exception handler in any
-    /// of its eight overloads, so an escaped exception does not land in a log -- it abandons the
-    /// game's method part-way through. Let one out of the SendingRideScore handler and
-    /// Game.OnSongEnded stops before it saves settings and returns to the Hub.
-    /// </para>
-    ///
-    /// <para>
-    /// <b>Wire from the main thread.</b> AddListener writes a plain Dictionary with no lock of its
-    /// own. The lock here keeps two mods' first `+=` from racing each other, but it cannot help
-    /// against the game thread broadcasting at the same moment. Plugin Awake is the intended place,
-    /// and that is what the XML comments on AS2GameEvents ask for.
-    /// </para>
-    /// </summary>
+    /// <summary>The one place in this framework that talks to the game's own event bus</summary>
+    // The game's Messenger is public and carries about 194 message names, so a mod could subscribe
+    // to any of them itself. This class keeps the framework's supported surface a closed set:
+    // MessageTable declares every name and shape, this is internal, and no public API takes a name
+    //
+    // Nothing here broadcasts. There is no Broadcast call in this assembly, and
+    // tools/verify-invariants.ps1 fails the release build if one appears
+    //
+    // Subscribe once, never unsubscribe. This Messenger copy has no Cleanup and no
+    // MarkAsPermanent, and nothing outside the four Messenger classes reads the event table, so a
+    // listener lives for the process
+    // Removing is worse than useless: OnListenerRemoved drops the key when the last listener
+    // leaves, and the default mode is REQUIRE_LISTENER, so a later broadcast throws inside the game
+    //
+    // Every handler catches everything. Messenger.Broadcast has no exception handler in any of its
+    // 8 overloads, so an escaped exception abandons the game's method part-way through
+    // Let one out of the SendingRideScore handler and Game.OnSongEnded stops before it saves
+    // settings and returns to the Hub
+    //
+    // Wire from the main thread. AddListener writes a plain Dictionary with no lock of its own
+    // The lock here stops two mods' first += racing each other, and cannot help against the game
+    // thread broadcasting at the same moment
     internal static class MessengerBridge
     {
         private static readonly object Gate = new object();
@@ -126,7 +108,7 @@ namespace AS2.ModApi
             Guard(MessageTable.PlayerJumped, delegate { AS2GameEvents.RaisePlayerJumped(height); });
         }
 
-        /// <summary>The new running total, straight out of ScoreManager.AddPoints.</summary>
+        /// <summary>The new running total, straight out of ScoreManager.AddPoints</summary>
         private static void OnScoreUpdated(float total)
         {
             Guard(MessageTable.ScoreUpdated, delegate { AS2GameEvents.RaiseScoreUpdated(total); });
@@ -218,16 +200,12 @@ namespace AS2.ModApi
             catch (Exception e) { Failed(name, e); }
         }
 
-        /// <summary>
-        /// Decides whether this call is the one that subscribes. False means either that the name is
-        /// already wired -- the common case, since every `+=` after the first lands here -- or that
-        /// the wire method disagrees with <see cref="MessageTable"/>, which is refused outright.
-        ///
-        /// That refusal is the important half. All four Messenger classes share one event table, so
-        /// subscribing with the wrong argument count does not fail politely in our own corner: the
-        /// game's own AddListener calls on that name start throwing ListenerException. Better to
-        /// lose one framework event and say so than to break a listener that belongs to the game.
-        /// </summary>
+        /// <summary>Decides whether this call is the one that subscribes</summary>
+        // False means the name is already wired, which is the common case since every += after the
+        // first lands here, or that the wire method disagrees with MessageTable
+        // The refusal is the important half. All four Messenger classes share one event table, so a
+        // wrong argument count makes the game's own AddListener calls throw ListenerException
+        // Better to lose one framework event and say so than to break a listener the game owns
         private static bool Claim(string name, int arity)
         {
             if (!MessageTable.Declares(name, arity))

@@ -3,110 +3,67 @@ using LuaInterface;
 
 namespace AS2.ModApi
 {
-    /// <summary>
-    /// The event surface for Audiosurf 2 mods.
-    ///
-    /// The game broadcasts almost nothing about its own state, so before this existed every mod
-    /// polled FindObjectOfType every few frames and reached into private fields by reflection to
-    /// find out what the player had selected. These events are Harmony patches over the real
-    /// methods (see Patches.cs), so they fire exactly when the thing happens and cost nothing when
-    /// it does not.
-    ///
-    /// Subscribers are isolated: an exception thrown by one handler is logged and swallowed so it
-    /// cannot take out the other subscribers or the game.
-    ///
-    /// <para>
-    /// Subscribe and unsubscribe from any thread you like. Handlers themselves run on the thread
-    /// that raised the event, which is the game thread for every event here. One consequence is
-    /// worth knowing: each event takes its handler list at the moment it starts, so a `-=` that
-    /// lands during a raise can still see one more call. Make a handler that unsubscribes itself
-    /// tolerate that call rather than assume it cannot happen.
-    /// </para>
-    /// </summary>
+    /// <summary>The event surface for Audiosurf 2 mods</summary>
+    // Harmony patches over the real methods (see Patches.cs), so an event fires when the thing
+    // happens and costs nothing when it does not
+    // Subscribers are isolated: a handler that throws is logged and swallowed
+    // Subscribe and unsubscribe from any thread. Handlers run on the thread that raised, which is
+    // the game thread for all five
+    // Each raise takes its handler list at the top, so a -= landing mid-raise still sees one more
+    // call. A handler that unsubscribes itself has to tolerate that
+    // What each event means and when it fires: see the AS2Events wiki page
     public static class AS2Events
     {
-        /// <summary>A skin or mode selector screen appeared.</summary>
+        /// <summary>A skin or mode selector screen appeared</summary>
         public static event Action<SelectorKind> SelectorOpened;
 
-        /// <summary>A skin or mode selector screen went away.</summary>
+        /// <summary>A skin or mode selector screen went away</summary>
         public static event Action<SelectorKind> SelectorClosed;
 
-        /// <summary>
-        /// The player highlighted a different entry. The string is the storage key
-        /// (e.g. "skins/Rainbowdrive"), already normalised by <see cref="TargetResolver"/>.
-        /// </summary>
+        /// <summary>The player highlighted a different entry</summary>
+        // The string is the storage key ("skins/Rainbowdrive"), normalised by TargetResolver
         public static event Action<SelectorKind, string> SelectionChanged;
 
-        /// <summary>
-        /// A Lua state was just created, before the game has registered its own API into it and
-        /// before the skin/mode script runs. This is the moment to add globals of your own.
-        ///
-        /// `kind` is the game's own label, verified at runtime to be "Skin" or "Mod". Every Lua
-        /// state in the game comes through here, which is why this single event replaces both of
-        /// the game's LuaSkinFunctionsRegistered / LuaModFunctionsRegistered messages and the
-        /// reflection into the private LuaMods.lua field that reading the mode state used to need.
-        ///
-        /// <para>
-        /// <b>The code that will run in this state is not yours and is not trusted.</b> Skins and
-        /// modes are Steam Workshop downloads: a player subscribes, and someone else's Lua runs.
-        /// The game treats them accordingly, and the state handed to you here has already been
-        /// sandboxed -- LuaSandbox.NewLua calls SecureLuaFunctions, Sandboxify and LoadSafeTypes
-        /// before returning. Between them those nil out `package`, `io`, `require`, `module`,
-        /// `os.execute`, `os.exit`, `os.getenv`, `os.remove`, `os.rename`, and -- the two that
-        /// matter most -- `luanet` and `load_assembly`, which are LuaInterface's bridge to the
-        /// CLR. Reachable types are then narrowed to a whitelist of about forty.
-        /// </para>
-        ///
-        /// <para>
-        /// Every function you register lands on the far side of that whitelist. `RegisterFunction`
-        /// does not consult it, so a helper added here is a hole punched straight through the
-        /// sandbox, callable by any skin the player has ever subscribed to. So:
-        /// </para>
-        ///
-        /// <list type="bullet">
-        /// <item>Register nothing with file, network, process or reflection reach. A convenience
-        /// wrapper over File.ReadAllText hands arbitrary file reads to untrusted content.</item>
-        /// <item>Treat every argument as hostile -- wrong type, null, absurd length, a path that
-        /// climbs. It is Lua: the signature guarantees you nothing.</item>
-        /// <item>Keep what you expose to data your own mod owns, and keep it read-mostly.</item>
-        /// </list>
-        ///
-        /// <para>
-        /// The `Lua` handed to you belongs to the game and is disposed on
-        /// LuaController.OnDisable; expect several states per song and make injection idempotent
-        /// and cheap. Retaining the reference past this event means holding a live interpreter --
-        /// including, on a "Mod" state, the scoring functions the game registers into it moments
-        /// later. That is not a capability this API grants you (a BepInEx plugin has the whole
-        /// process either way) but it is the shortest path to it, so reach for it deliberately.
-        /// </para>
-        /// </summary>
+        /// <summary>A Lua state was created, before the game's API is in it and before the script runs</summary>
+        // The moment to add globals of your own
+        // kind is the game's own label, verified at runtime to be "Skin" or "Mod"
+        // Every Lua state comes through here, so this replaces both LuaSkinFunctionsRegistered and
+        // LuaModFunctionsRegistered and the reflection into the private LuaMods.lua field
+        //
+        // The code that will run in this state is not yours and is not trusted -- skins and modes
+        // are Steam Workshop downloads
+        // NewLua has already sandboxed the state, but RegisterFunction does not consult that
+        // whitelist, so anything registered here is reachable by every skin the player has
+        // Register nothing with file, network, process or reflection reach, and treat every
+        // argument as hostile
+        // The Lua belongs to the game and is disposed on LuaController.OnDisable. Expect several
+        // states per song, so make injection idempotent and cheap
+        // The full sandbox argument: see the AS2Events and Lua States wiki pages
         public static event Action<Lua, string> LuaStateCreated;
 
-        /// <summary>
-        /// The game's own settings dialog opened or closed. Use this to put a mod's entry point
-        /// inside the settings menu instead of floating it over the game;
-        /// <see cref="AS2Ui.EntryButtonRect"/> is the spot the dialog leaves free for one.
-        /// </summary>
+        /// <summary>The game's own settings dialog opened or closed</summary>
+        // Use it to put a mod's entry point inside the settings menu rather than floating it over
+        // the game. <see cref="AS2Ui.EntryButtonRect"/> is the spot the dialog leaves free
         public static event Action<bool> SettingsDialogToggled;
 
         // ---- Current state -------------------------------------------------------------------
 
-        /// <summary>Which selector is on screen, or null if neither is.</summary>
+        /// <summary>Which selector is on screen, or null if neither is</summary>
         public static SelectorKind? ActiveSelector { get; private set; }
 
-        /// <summary>Storage key of the current selection on the active selector, or null.</summary>
+        /// <summary>Storage key of the current selection on the active selector, or null</summary>
         public static string ActiveKey { get; private set; }
 
-        // ---- Raising (internal) --------------------------------------------------------------
-        //
-        // Every method here copies its event field to a local before it looks at it. A mod may
-        // call -= from the callback of a web request or a file read, exactly as AS2ModMenu.Register
-        // says it may, and the last -= sets the field to null. Reading the field twice -- once for
-        // the null check, once for GetInvocationList -- lets that removal land between the two, and
-        // GetInvocationList then throws a NullReferenceException. The throw is outside Safe, which
-        // only wraps the subscriber call, so it leaves a Harmony postfix on the game thread with
-        // nobody to catch it. A local cannot change under the method: it raises the handler list as
-        // it was at the top, and a mod that unsubscribes a moment too late gets one more call.
+        // Raising (internal)
+        // ===========================================================================================
+        // #26 -- every method here copies its event field to a local before it looks at it
+        // A mod may call -= from a worker thread, and the last -= sets the field to null
+        // Reading the field twice, once to null-check and once for GetInvocationList, lets that
+        // removal land between the two, and GetInvocationList throws NullReferenceException
+        // Safe does not cover it: Safe wraps the subscriber call, and this throws while building
+        // the list of subscribers to call, leaving an uncaught throw in a postfix on the game thread
+        // A local cannot change under the method. The cost is one more call to a handler that
+        // unsubscribed a moment too late, which the class documents
 
         internal static void RaiseSelectorOpened(SelectorKind kind)
         {
@@ -157,12 +114,9 @@ namespace AS2.ModApi
                 Safe("SettingsDialogToggled", delegate { h(open); });
         }
 
-        /// <summary>
-        /// Reads the game's own static selection state for one selector.
-        ///
-        /// CodeEditor.skinPath/modPath are absolute and only populated once a song has been set up,
-        /// so they are the fallback rather than the primary source.
-        /// </summary>
+        /// <summary>Reads the game's own static selection state for one selector</summary>
+        // CodeEditor.skinPath and modPath are absolute and only populated once a song is set up,
+        // so they are the fallback rather than the primary source
         public static string CurrentKey(SelectorKind kind)
         {
             if (kind == SelectorKind.Skin)
@@ -189,7 +143,7 @@ namespace AS2.ModApi
             catch { return null; }
         }
 
-        /// <summary>Runs one subscriber. A mod that throws in a handler breaks only itself.</summary>
+        /// <summary>Runs one subscriber. A mod that throws in a handler breaks only itself</summary>
         private static void Safe(string name, Action body)
         {
             try { body(); }

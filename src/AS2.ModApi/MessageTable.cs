@@ -2,43 +2,25 @@ using System;
 
 namespace AS2.ModApi
 {
-    /// <summary>
-    /// The closed set of game broadcasts this framework carries, and the exact call shape of each.
-    ///
-    /// The game runs a trimmed copy of the Unify Community "Advanced CSharp Messenger". Read the
-    /// three facts below before you touch this table, because each one turns a plausible-looking
-    /// edit into a bug that lands in somebody else's code rather than ours.
-    ///
-    /// <para>
-    /// <b>1. Arity is not a style choice; a wrong one breaks the game.</b> Messenger, Messenger&lt;T&gt;,
-    /// Messenger&lt;T,U&gt; and Messenger&lt;T,U,V&gt; all alias one shared Dictionary&lt;string,Delegate&gt;,
-    /// assigned from MessengerInternal.eventTable in each class's static constructor. So a name has
-    /// exactly one legal delegate type across the whole process. Subscribing to "GameplayStart" as
-    /// Messenger&lt;int&gt; does not fail quietly in our corner: OnListenerAdding compares the stored
-    /// delegate's type against the one being added and throws ListenerException, and the next
-    /// Broadcast from the game throws too. Every shape below was read off the IL of the shipped
-    /// Assembly-CSharp, not guessed.
-    /// </para>
-    ///
-    /// <para>
-    /// <b>2. The default broadcast mode is REQUIRE_LISTENER.</b> MessengerInternal's static
-    /// constructor sets DEFAULT_MODE to REQUIRE_LISTENER, so a Broadcast with no listener throws
-    /// BroadcastException. Adding a listener can therefore only ever prevent a throw. Removing the
-    /// last one can cause it, which is why <see cref="MessengerBridge"/> never unsubscribes.
-    /// </para>
-    ///
-    /// <para>
-    /// <b>3. "GameplayEnd" is a dead name and is deliberately absent.</b> Thirty-two sites in the
-    /// game call AddListener or RemoveListener on it and no site ever broadcasts it. Use EndCleanup,
-    /// which fires on a natural song end, on End Song from the pause menu, and on Restart.
-    /// </para>
-    ///
-    /// <para>
-    /// This file must stay free of Unity, BepInEx and the game's own assemblies. It is compiled into
-    /// tests/AS2.ModApi.Tests, which is what checks the table against the documented shapes on every
-    /// push. That is also why the parameter types are spelled as strings rather than as Type objects.
-    /// </para>
-    /// </summary>
+    /// <summary>The closed set of game broadcasts this framework carries, and each call shape</summary>
+    // Three facts, and each one turns a plausible-looking edit into a bug in somebody else's code
+    //
+    // 1. Arity is not a style choice. Messenger, Messenger<T>, Messenger<T,U> and Messenger<T,U,V>
+    //    all alias one shared Dictionary<string,Delegate> from MessengerInternal.eventTable, so a
+    //    name has exactly one legal delegate type across the process
+    //    A wrong one throws ListenerException on add, and the game's next Broadcast throws too
+    //    Every shape below was read off the IL of the shipped Assembly-CSharp, not guessed
+    //
+    // 2. The default broadcast mode is REQUIRE_LISTENER, so a Broadcast with no listener throws
+    //    BroadcastException. Adding a listener can only prevent a throw, and removing the last one
+    //    can cause it, which is why MessengerBridge never unsubscribes
+    //
+    // 3. "GameplayEnd" is a dead name and is deliberately absent. 32 sites call AddListener or
+    //    RemoveListener on it and no site broadcasts it. Use EndCleanup, which fires on a natural
+    //    song end, on End Song from the pause menu, and on Restart
+    //
+    // Stays free of Unity, BepInEx and the game's assemblies, because it compiles into
+    // tests/AS2.ModApi.Tests. That is also why parameter types are strings rather than Type
     internal static class MessageTable
     {
         // ---- Names -------------------------------------------------------------------------------
@@ -66,16 +48,12 @@ namespace AS2.ModApi
         internal const string TrickStarted = "TrickStarted";
         internal const string PlayerJumped = "PlayerJumped";
 
-        /// <summary>
-        /// The running score, as a total.
-        ///
-        /// Not to be confused with <see cref="ScoreChanged"/>, which is the trap. ScoreChanged is
-        /// broadcast by Flyups and TrickHUD and *listened to* by ScoreManager -- it is one of
-        /// several inputs to scoring, not its output, and OnTrafficCollected and OnAddPoints add
-        /// points without ever passing through it. Adding up ScoreChanged therefore yields a
-        /// fraction of the real score. ScoreManager.AddPoints computes the new total and broadcasts
-        /// it here, which makes this the only live figure that matches what the player can see.
-        /// </summary>
+        /// <summary>The running score, as a total</summary>
+        // Not <see cref="ScoreChanged"/>, which is the trap: that one is broadcast by Flyups and
+        // TrickHUD and listened to by ScoreManager, so it is an input to scoring, not its output
+        // OnTrafficCollected and OnAddPoints add points without passing through it, so adding
+        // ScoreChanged up yields a fraction of the real score
+        // ScoreManager.AddPoints computes the new total and broadcasts it here
         internal const string ScoreUpdated = "ScoreUpdated";
         internal const string SongChanged = "SongChanged";
         internal const string AboutToChangeSong = "AboutToChangeSong";
@@ -92,7 +70,7 @@ namespace AS2.ModApi
 
         // ---- Signatures --------------------------------------------------------------------------
 
-        /// <summary>Canonical spellings for <see cref="Entry.Signature"/>. Zero arguments is "".</summary>
+        /// <summary>Canonical spellings for <see cref="Entry.Signature"/>. Zero arguments is ""</summary>
         internal const string None = "";
         internal const string Int = "int";
         internal const string Float = "float";
@@ -102,7 +80,7 @@ namespace AS2.ModApi
         internal const string IntInt = "int,int";
         internal const string IntIntVector3 = "int,int,Vector3";
 
-        /// <summary>One declared message: its name and the exact Messenger call shape.</summary>
+        /// <summary>One declared message: its name and the exact Messenger call shape</summary>
         internal sealed class Entry
         {
             internal readonly string Name;
@@ -114,7 +92,7 @@ namespace AS2.ModApi
                 Signature = signature;
             }
 
-            /// <summary>Number of broadcast arguments, derived from the signature.</summary>
+            /// <summary>Number of broadcast arguments, derived from the signature</summary>
             internal int Arity
             {
                 get
@@ -168,7 +146,7 @@ namespace AS2.ModApi
             new Entry(TrafficMissed, IntIntVector3),
         };
 
-        /// <summary>The entry for a name, or null when the name is not in the supported set.</summary>
+        /// <summary>The entry for a name, or null when the name is not in the supported set</summary>
         internal static Entry Find(string name)
         {
             if (name == null) return null;
@@ -177,14 +155,11 @@ namespace AS2.ModApi
             return null;
         }
 
-        /// <summary>
-        /// True when the name is declared with exactly this argument count.
-        ///
-        /// <see cref="MessengerBridge"/> asks before every AddListener, which is what stops a typo in
-        /// a wire method from reaching the game's shared event table. A table row that nobody wires
-        /// is harmless; a wire method that does not match its row is the bug worth catching, and it
-        /// is caught here at run time and in the cold checks at build time.
-        /// </summary>
+        /// <summary>True when the name is declared with exactly this argument count</summary>
+        // MessengerBridge asks before every AddListener, which stops a typo in a wire method
+        // reaching the game's shared event table
+        // A table row nobody wires is harmless. A wire method that does not match its row is the
+        // bug worth catching, and it is caught here at run time and in the cold checks
         internal static bool Declares(string name, int arity)
         {
             Entry e = Find(name);
