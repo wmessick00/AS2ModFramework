@@ -209,7 +209,7 @@ namespace AS2.ModApi
         //
         // The columns the game lays a settings row out on, measured off the real dialog at 2560x1440
         // and expressed in design units from the row's left edge. Multiply by Unit, or just use
-        // RowRects. These were documented in docs/game-internals.md before they were code, which
+        // RowRects. These were prose on a wiki page before they were code, which
         // meant every mod that wanted a vanilla-looking row copied the numbers out of the prose and
         // owned its own drifting copy of them.
 

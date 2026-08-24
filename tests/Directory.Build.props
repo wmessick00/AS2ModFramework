@@ -1,15 +1,16 @@
 <Project>
 
   <!--
-    Deliberately empty, and deliberately does NOT import the Directory.Build.props in the repo root.
+    Empty on purpose, and it does not import the Directory.Build.props in the repo root.
 
-    MSBuild stops walking up the moment it finds one of these, so this file is what keeps the root's
-    build settings out of the tests. Those settings exist to compile against the game's own
-    assemblies: net35, NoStdLib, and references resolved out of Audiosurf2_Data\Managed. Every one
-    of them is wrong here. The whole point of the test project is that it needs no game, no BepInEx
-    and no Unity, so it targets a normal desktop framework and uses the normal reference assemblies.
+    MSBuild stops walking up the moment it finds one of these, so this file keeps the root's build
+    settings out of the tests. Those settings compile against the game's own assemblies: net35,
+    NoStdLib, references out of Audiosurf2\Managed. Every one of them is wrong here.
 
-    If shared test settings are ever wanted, they go here.
+    The point of the test project is that it needs no game, no BepInEx and no Unity, so it targets
+    a normal desktop framework and uses the normal reference assemblies.
+
+    Shared test settings, if ever wanted, go here.
   -->
 
 </Project>

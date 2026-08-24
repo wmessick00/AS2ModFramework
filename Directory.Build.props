@@ -3,15 +3,13 @@
   <!--
     Shared build configuration for every project in this repo.
 
-    Everything targets the game's own runtime: Unity 2017.4.40f1 on the legacy Mono scripting
-    backend (.NET 3.5 API level, CLR 2.0, x64). Rather than pulling the net35 reference-assembly
-    NuGet package, we reference assemblies straight out of Audiosurf2_Data/Managed. That keeps the
-    build offline and guarantees an exact match with what the game will actually load.
+    Targets the game's own runtime: Unity 2017.4.40f1, legacy Mono, .NET 3.5 API, CLR 2.0, x64.
+    References resolve out of Audiosurf2_Data/Managed rather than the net35 reference-assembly
+    package. That keeps the build offline and matches what the game loads exactly.
 
-    Consequence: only .NET 3.5-era BCL is available. No string.IsNullOrWhiteSpace, no Task,
-    no ValueTuple.
+    Consequence: .NET 3.5 BCL only. No string.IsNullOrWhiteSpace, no Task, no ValueTuple.
 
-    Override the game location if your Steam library lives elsewhere:
+    Override the game location:
         dotnet build -c Release -p:AudiosurfDir="D:\Steam\steamapps\common\Audiosurf 2"
   -->
 
@@ -19,10 +17,10 @@
     <AudiosurfDir Condition="'$(AudiosurfDir)' == ''">C:\Program Files (x86)\Steam\steamapps\common\Audiosurf 2</AudiosurfDir>
     <ManagedDir>$(AudiosurfDir)\Audiosurf2_Data\Managed\</ManagedDir>
     <!--
-      Overridable so tools\pack.ps1 can build against the pinned BepInEx it is about to ship, rather
-      than whatever happens to be installed in the game folder. Without that, a release build would
-      depend on the machine already having BepInEx installed, which a clean one does not. Must end
-      in a directory separator; references are formed as $(BepInExCoreDir)BepInEx.dll.
+      Overridable so tools\pack.ps1 builds against the pinned BepInEx it is about to ship, not
+      whatever is installed in the game folder. Without it a release build needs BepInEx already
+      installed, which a clean machine does not have.
+      Must end in a directory separator. References form as $(BepInExCoreDir)BepInEx.dll.
     -->
     <BepInExCoreDir Condition="'$(BepInExCoreDir)' == ''">$(AudiosurfDir)\BepInEx\core\</BepInExCoreDir>
   </PropertyGroup>
@@ -40,10 +38,10 @@
     <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
 
     <!--
-      MSBuild otherwise fails with MSB3644 because no .NET 3.5 targeting pack is installed. We do
-      not want one: every reference is resolved from Audiosurf2_Data/Managed. Pointing these two
-      internal properties at a real directory satisfies the reference-assembly lookup without
-      contributing any assemblies to the compile.
+      MSB3644 otherwise: no .NET 3.5 targeting pack is installed, and none is wanted, because every
+      reference resolves from Audiosurf2_Data/Managed.
+      Pointing these two internal properties at a real directory satisfies the reference-assembly
+      lookup without contributing any assembly to the compile.
     -->
     <_TargetFrameworkDirectories>$(MSBuildThisFileDirectory)</_TargetFrameworkDirectories>
     <_FullFrameworkReferenceAssemblyPaths>$(MSBuildThisFileDirectory)</_FullFrameworkReferenceAssemblyPaths>
@@ -65,9 +63,10 @@
       <Private>false</Private>
     </Reference>
     <!--
-      On .NET 3.5 this is where Action (0-arg), Action<T1,T2..>, Func<> and HashSet<T> live;
-      mscorlib only carries Action<T>. Projects that do not use them, such as AS2.Bootstrap,
-      simply end up not referencing it in the emitted assembly.
+      On .NET 3.5 this holds Action (0-arg), Action<T1,T2..>, Func<> and HashSet<T>. mscorlib
+      carries only Action<T>.
+      A project that uses none of them, such as AS2.Bootstrap, does not reference it in the
+      emitted assembly.
     -->
     <Reference Include="System.Core">
       <HintPath>$(ManagedDir)System.Core.dll</HintPath>

@@ -1,24 +1,23 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <!--
-    Cold checks for the path and key logic in AS2.ModApi, per the policy in AGENTS.md: anything that
-    does not truly need the game running should not need a launch to verify.
+    Cold checks for the path and key logic in AS2.ModApi. Anything that does not truly need the game
+    running should not need a launch to verify.
 
-    Three things about the shape of this project are deliberate.
+    Three things about this project are deliberate.
 
     It compiles the real source files rather than referencing the built DLL. AS2.ModApi is net35 and
-    binds to BepInEx, Unity and LuaInterface, none of which load outside the game; reflecting over
+    binds to BepInEx, Unity and LuaInterface, none of which load outside the game. Reflecting over
     the shipped assembly was tried and dies resolving MonoMod and UnityEngine. Linking the sources
-    means these tests exercise the same text that ships, so they cannot drift from it the way a
-    reimplementation in a script would.
+    means these checks exercise the text that ships, so they cannot drift from it.
 
-    It has no NuGet dependency, matching the rest of the repo. That includes the test framework:
-    this is a console app that returns a non-zero exit code on failure, which `dotnet run` reports
-    and any CI understands. A test runner would be nicer and is not worth an offline-build exception.
+    No NuGet dependency, matching the rest of the repo. That includes the test framework: this is a
+    console app returning a non-zero exit code on failure, which dotnet run reports and any CI
+    understands. A test runner would be nicer and is not worth an offline-build exception.
 
-    It needs no game installed. Only the two genuinely external statics are faked (see Shims.cs), so
-    unlike everything else in this repo this builds and runs anywhere. That is the point, since the
-    logic under test is what rejects path traversal out of untrusted keys.
+    No game installed. Only the two genuinely external statics are faked (see Shims.cs), so unlike
+    everything else here this builds and runs anywhere. That is the point, since the logic under
+    test is what rejects path traversal out of untrusted keys.
   -->
 
   <PropertyGroup>
@@ -27,47 +26,46 @@
     <LangVersion>7.3</LangVersion>
     <AssemblyName>AS2.ModApi.Tests</AssemblyName>
     <RootNamespace>AS2.ModApi.Tests</RootNamespace>
-    <!-- The linked sources are net35-era and use no XML doc IDs this project needs to resolve. -->
+    <!-- The linked sources are net35-era and use no XML doc IDs this project resolves. -->
     <NoWarn>$(NoWarn);1591;0169</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>
     <!--
-      The production code under test. Kept to the files that carry the logic and nothing more: each
-      one added here is a file that must not reach for BepInEx or Unity. That constraint is why Str
-      and SelectorKind live in their own files rather than inside ModApiPlugin and AS2Events.
+      The production code under test. The files that carry the logic and nothing more: each one
+      added here must not reach for BepInEx or Unity. That constraint is why Str and SelectorKind
+      live in their own files rather than inside ModApiPlugin and AS2Events.
     -->
     <Compile Include="..\..\src\AS2.ModApi\TargetResolver.cs" Link="Production\TargetResolver.cs" />
     <Compile Include="..\..\src\AS2.ModApi\PathGuard.cs"      Link="Production\PathGuard.cs" />
     <Compile Include="..\..\src\AS2.ModApi\Str.cs"            Link="Production\Str.cs" />
     <Compile Include="..\..\src\AS2.ModApi\SelectorKind.cs"   Link="Production\SelectorKind.cs" />
     <!--
-      The closed set of game broadcasts and their arities. This is the reason MessageTable.cs holds
-      no Unity, BepInEx or game reference: a wrong arity corrupts the game's shared event table and
+      The closed set of game broadcasts and their arities. The reason MessageTable.cs holds no
+      Unity, BepInEx or game reference: a wrong arity corrupts the game's shared event table and
       breaks its own listeners, so it has to be checkable without a launch. See SurfaceChecks.cs.
     -->
     <Compile Include="..\..\src\AS2.ModApi\MessageTable.cs"   Link="Production\MessageTable.cs" />
     <!-- Atomic writes and quarantine. Pure file work, so it needs no game to exercise. -->
     <Compile Include="..\..\src\AS2.ModApi\AS2Store.cs"       Link="Production\AS2Store.cs" />
     <!--
-      Whose turn the one shared scroll view is. AS2Ui itself is IMGUI from end to end and can never
-      be compiled here, so the rules that decide what one mod's unclosed view costs every other mod
-      sit in their own file. That is the same split as Str and SelectorKind above. See issue #38 and
-      ScrollChecks.cs.
+      Whose turn the one shared scroll view is. AS2Ui is IMGUI end to end and can never compile
+      here, so the rules deciding what one mod's unclosed view costs every other mod sit in their
+      own file. Same split as Str and SelectorKind above. See #38 and ScrollChecks.cs.
     -->
     <Compile Include="..\..\src\AS2.ModApi\ScrollTurns.cs"    Link="Production\ScrollTurns.cs" />
 
     <!--
       The two concurrency fixes that shipped as bugs first, and the patch registration behind them.
 
-      These three do reference the game, so Shims.cs stands in for what they touch: an empty
-      LuaInterface.Lua, the handful of game statics AS2Events.CurrentKey reads, and enough of Harmony
-      for Patches to run its by-name lookups. That buys regression cover for issue #16 and issue #26,
-      which are locking bugs no reader can check by looking and no launch reliably reproduces.
+      These three reference the game, so Shims.cs stands in for what they touch: an empty
+      LuaInterface.Lua, the game statics AS2Events.CurrentKey reads, and enough of Harmony for
+      Patches to run its by-name lookups. That buys regression cover for #16 and #26, which are
+      locking bugs no reader can check by looking and no launch reliably reproduces.
 
-      The shims copy the shape of the game's members, not the game's assembly, so they cannot catch a
-      member the community patch renames. The real build of AS2.ModApi compiles against the shipped
-      Assembly-CSharp and is what fails then. See the note at the top of Shims.cs.
+      The shims copy the shape of the game's members, not the game's assembly, so they cannot catch
+      a member the community patch renames. The real build of AS2.ModApi compiles against the
+      shipped Assembly-CSharp and is what fails then. See the note at the top of Shims.cs.
     -->
     <Compile Include="..\..\src\AS2.ModApi\ModMenuRegistry.cs" Link="Production\ModMenuRegistry.cs" />
     <Compile Include="..\..\src\AS2.ModApi\AS2Events.cs"       Link="Production\AS2Events.cs" />

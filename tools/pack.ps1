@@ -54,14 +54,15 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
-# Pinned so a release is reproducible and a swapped upstream asset cannot pass unnoticed. Bumping
-# BepInEx means changing all three, plus the version tables in README.md and docs/environment.md.
+# Pinned so a release is reproducible and a swapped upstream asset cannot pass unnoticed.
+# Bumping BepInEx means changing all three, plus the version table in README.md.
 $BepInExVersion = '5.4.23.5'
 $BepInExUrl     = "https://github.com/BepInEx/BepInEx/releases/download/v$BepInExVersion/BepInEx_win_x64_$BepInExVersion.zip"
 $BepInExSha256  = '82F9878551030F54657792C0740D9D51A09500EEAE1FBA21106B0C441E6732C4'
 
 # The community patch owns these. Shipping any of them replaces its UnityDoorstop 3.4.1 with 4.5.0,
-# which resolves a different entry point and reads a different ini format -- see docs/loading-chain.md.
+# which resolves a different entry point and reads a different ini format.
+# See the The Loading Chain wiki page.
 $PatchOwnedFiles = @('winhttp.dll', 'doorstop_config.ini', '.doorstop_version')
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
@@ -79,8 +80,8 @@ if (-not $AudiosurfDir) {
 }
 $AudiosurfDir = $AudiosurfDir.TrimEnd('\')
 
-# Checked up front and by name, because the alternative is an MSBuild reference-resolution error
-# that never mentions Audiosurf at all.
+# Checked up front and by name. The alternative is an MSBuild reference-resolution error that
+# never mentions Audiosurf at all.
 $managedDir = Join-Path $AudiosurfDir 'Audiosurf2_Data\Managed'
 if (-not (Test-Path $managedDir)) {
     throw @"
@@ -94,9 +95,10 @@ release. Point the script at it:
 "@
 }
 
-# Read off the constant rather than the assembly: GenerateAssemblyInfo is deliberately off in
-# Directory.Build.props, so the DLLs carry no version resource. This constant is also what BepInEx
-# prints in LogOutput.log, so a release filename and a user's log line always agree.
+# Read off the constant, not the assembly. GenerateAssemblyInfo is off in Directory.Build.props, so
+# the DLLs carry no version resource.
+# The constant is also what BepInEx prints in LogOutput.log, so a release filename and a user's log
+# line always agree.
 $pluginSource = Get-Content (Join-Path $repoRoot 'src\AS2.ModApi\ModApiPlugin.cs') -Raw
 if ($pluginSource -notmatch 'const\s+string\s+Version\s*=\s*"([^"]+)"') {
     throw 'Could not read ModApiPlugin.Version from src\AS2.ModApi\ModApiPlugin.cs'
@@ -108,9 +110,9 @@ Write-Host "    game: $AudiosurfDir"
 
 # ---- 2. Acquire BepInEx -----------------------------------------------------------------------
 
-# Before the build, not after: AS2.ModApi references BepInEx.dll and 0Harmony.dll, and staging them
-# first means it builds against the exact BepInEx this release ships rather than whatever is
-# installed in the game folder. On a clean machine there is nothing installed there at all.
+# Before the build, not after. AS2.ModApi references BepInEx.dll and 0Harmony.dll, so staging them
+# first builds against the exact BepInEx this release ships rather than whatever is in the game
+# folder. On a clean machine there is nothing there at all.
 
 if (-not $BepInExZip) {
     if (-not (Test-Path $cacheDir)) { New-Item -ItemType Directory -Path $cacheDir | Out-Null }
@@ -146,10 +148,10 @@ Add-Type -AssemblyName System.IO.Compression.FileSystem
 $archive = [IO.Compression.ZipFile]::OpenRead($BepInExZip)
 
 # An entry name is data from the archive, not a path we chose. "BepInEx/core/../../../evil.dll"
-# satisfies the prefix test below and Join-Path would resolve it happily outside the staging
-# folder -- the classic zip slip. The pinned hash makes that unreachable for a normal release
-# build, but -SkipHashCheck and -BepInExZip each exist precisely to set that pin aside, so the
-# containment is asserted here rather than inferred from the hash.
+# satisfies the prefix test below, and Join-Path resolves it outside the staging folder. Zip slip.
+# The pinned hash makes that unreachable for a normal release build, but -SkipHashCheck and
+# -BepInExZip both exist to set that pin aside, so containment is asserted here rather than
+# inferred from the hash.
 $stageCoreFull = [IO.Path]::GetFullPath($stageCore)
 if (-not $stageCoreFull.EndsWith('\')) { $stageCoreFull += '\' }
 
@@ -163,7 +165,7 @@ try {
             continue
         }
 
-        # Everything else outside BepInEx/core is BepInEx's own changelog and similar; not ours to ship.
+        # Everything else outside BepInEx/core is BepInEx's own changelog and similar. Not ours to ship.
         if (-not $entry.FullName.StartsWith('BepInEx/core/')) { continue }
 
         $target = Join-Path $stageDir ($entry.FullName -replace '/', '\')
@@ -192,8 +194,8 @@ foreach ($required in @('BepInEx.dll', '0Harmony.dll', 'BepInEx.Preloader.dll'))
 
 Write-Step 'Building AS2.Bootstrap and AS2.ModApi'
 
-# Passed as environment variables rather than -p:. Both values are directory paths that must keep a
-# trailing separator, and a trailing backslash inside a quoted -p: argument escapes the quote.
+# Environment variables rather than -p:. Both values are directory paths that must keep a trailing
+# separator, and a trailing backslash inside a quoted -p: argument escapes the quote.
 # Directory.Build.props guards both with a Condition, so these win.
 $env:AudiosurfDir   = $AudiosurfDir
 $env:BepInExCoreDir = "$stageCore\"
@@ -219,11 +221,12 @@ foreach ($dll in @($bootstrapDll, $modApiDll)) {
 # ---- 4b. Invariants -----------------------------------------------------------------------------
 #
 # README.md tells users this framework cannot change what the game does, and that it reads a score
-# but can never set one. Those claims are checked here, against the DLL that is about to be
-# archived, rather than trusted. A violation stops the release: shipping the archive is exactly the
-# moment the claim starts being made to somebody.
+# and can never set one. Those claims are checked here against the DLL about to be archived, not
+# trusted.
+# A violation stops the release. Shipping the archive is the moment the claim starts being made to
+# somebody.
 #
-# Mono.Cecil comes from the BepInEx we just staged and verified against a pinned hash, so this needs
+# Mono.Cecil comes from the BepInEx just staged and verified against a pinned hash, so this needs
 # nothing installed and nothing downloaded.
 
 Write-Step 'Verifying the read-only and postfix-only invariants'
@@ -241,7 +244,7 @@ Copy-Item $modApiDll    (Join-Path $stageDir 'BepInEx\plugins') -Force
 
 # ---- 5. Notices and install instructions ------------------------------------------------------
 
-# The BepInEx zip ships no LICENSE file, so redistributing it means supplying the notice ourselves.
+# The BepInEx zip ships no LICENSE file, so redistributing it means supplying the notice here.
 $notices = @"
 THIRD-PARTY NOTICES
 ===================
@@ -334,7 +337,7 @@ else { Write-Warning 'No LICENSE file in the repo root; the package will ship wi
 # The split is not cosmetic. A mod manager deploys a mod by linking files into one directory, so
 # AS2ModApi -- a single DLL into BepInEx\plugins\ -- is manageable, while the loader has two install
 # roots and needs a Steam launch option no manager can set. Bundled together, every consumer of the
-# API inherits the loader's unmanageability. See docs/distribution.md.
+# API inherits the loader's unmanageability. See the Distributing a Mod wiki page.
 #
 # The combined archive stays, and stays the recommendation on GitHub: that audience is extracting a
 # zip by hand and should not have to fetch two. Same files either way, so a user can start with the
