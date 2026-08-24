@@ -8,15 +8,15 @@ using HarmonyLib;
 
 namespace AS2.Probe
 {
-    /// <summary>
-    /// Development probe. See AS2.Probe.csproj for what it is for; it is not shipped.
-    /// </summary>
+    /// <summary>Development probe. Not shipped</summary>
+    // See AS2.Probe.csproj for what it is for
     [BepInPlugin(Id, "AS2 Probe", "0.1.0")]
     public sealed class ProbePlugin : BaseUnityPlugin
     {
         internal const string Id = "as2.probe";
 
-        /// <summary>Types AS2.ModApi will need to hook. Dumped so the hooks can be written against fact.</summary>
+        /// <summary>Types AS2.ModApi will need to hook</summary>
+        // Dumped so the hooks get written against fact rather than against a guess
         private static readonly string[] TypesOfInterest =
         {
             "LuaSandbox",
@@ -36,8 +36,8 @@ namespace AS2.Probe
         {
             Instance = this;
 
-            // If this line reaches LogOutput.log, question 1 is answered: BepInEx started under the
-            // community patch's Doorstop 3.4.1 without its own Doorstop 4 proxy.
+            // If this line reaches LogOutput.log, question 1 is answered: BepInEx started under
+            // the community patch's Doorstop 3.4.1 without its own Doorstop 4 proxy
             Logger.LogInfo("AS2.Probe loaded. BepInEx is running under the community patch's doorstop.");
 
             try { DumpMembers(); }
@@ -47,11 +47,9 @@ namespace AS2.Probe
             catch (Exception e) { Logger.LogError("Probe patch failed: " + e); }
         }
 
-        /// <summary>
-        /// Postfixes LuaSandbox.NewLua, the factory every Lua state in the game is born from.
-        /// A line in the log when a song starts proves a Harmony detour fires on legacy Mono, and
-        /// tells us the 'kind' string each caller passes, which is what AS2.ModApi will key on.
-        /// </summary>
+        /// <summary>Postfixes LuaSandbox.NewLua, the factory every Lua state is born from</summary>
+        // A log line when a song starts proves a Harmony detour fires on legacy Mono
+        // It also gives the 'kind' string each caller passes, which is what AS2.ModApi keys on
         private void ApplyProbePatch()
         {
             Type sandbox = AccessTools.TypeByName("LuaSandbox");
@@ -66,21 +64,18 @@ namespace AS2.Probe
             Logger.LogInfo("Patched " + Describe(target) + " -- waiting for a song to start.");
         }
 
-        /// <summary>
-        /// Indexed injection (__0) rather than __args: __args needs a newer HarmonyX than BepInEx 5
-        /// necessarily ships, and __result declared as object can trip Harmony's assignability check.
-        /// luacontroller.cs:50 (`LuaSandbox.NewLua("Skin")`) already establishes the first parameter
-        /// is a string, so this binds against a known signature.
-        /// </summary>
+        /// <summary>Logs the kind string every Lua state is created with</summary>
+        // Indexed injection (__0), not __args -- __args needs a newer HarmonyX than BepInEx 5 ships
+        // __result declared as object can trip Harmony's assignability check, so name the real type
+        // luacontroller.cs:50 already has LuaSandbox.NewLua("Skin"), so the first parameter is a string
         private static void NewLuaPostfix(string __0)
         {
             Instance.Logger.LogInfo("HARMONY HIT: LuaSandbox.NewLua(kind=\"" + (__0 ?? "<null>") + "\")");
         }
 
-        /// <summary>
-        /// Writes every declared member of the types AS2.ModApi cares about to a file. Reading real
-        /// signatures beats guessing at Awake/Start/OnEnable and then debugging a silent no-op patch.
-        /// </summary>
+        /// <summary>Writes every declared member of the types AS2.ModApi cares about to a file</summary>
+        // Reading a real signature beats guessing at Awake/Start/OnEnable and then debugging a
+        // patch that silently did nothing
         private void DumpMembers()
         {
             const BindingFlags All = BindingFlags.Public | BindingFlags.NonPublic
@@ -116,9 +111,10 @@ namespace AS2.Probe
                 sb.AppendLine();
             }
 
-            // Create the folder first. The probe can run on an install where AS2ModLoader is not
-            // there yet, and File.WriteAllText throws DirectoryNotFoundException on a missing
-            // folder -- which Awake() catches, so the one file this tool exists to write is lost.
+            // Create the folder first
+            // The probe can run on an install where AS2ModLoader is not there yet, and
+            // File.WriteAllText throws DirectoryNotFoundException on a missing folder
+            // Awake catches that, so the one file this tool exists to write would be lost
             string dir = Path.Combine(Paths.GameRootPath, "AS2ModLoader");
             if (!Directory.Exists(dir)) Directory.CreateDirectory(dir);
 
