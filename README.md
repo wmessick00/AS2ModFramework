@@ -135,7 +135,7 @@ The game is the harness. Verifying anything bound to Unity or BepInEx means runn
 unmodified — the release archive carries a `THIRD-PARTY-NOTICES.txt` naming every bundled component.
 
 [rel]: https://github.com/wmessick00/AS2ModFramework/releases/latest
-[patch]: https://www.moddb.com/mods/audiosurf-2-community-patch
+[patch]: https://audiosurf2.info/download/windows
 [wiki]: https://github.com/wmessick00/AS2ModFramework/wiki
 [wiki-install]: https://github.com/wmessick00/AS2ModFramework/wiki/Installing
 [wiki-first]: https://github.com/wmessick00/AS2ModFramework/wiki/Your-First-Plugin
