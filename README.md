@@ -96,7 +96,7 @@ dotnet build src/AS2.ModApi/AS2.ModApi.csproj -c Release
 The cold checks are the one part that builds without the game:
 
 ```
-dotnet run --project tests/AS2.ModApi.Tests       # 232 checks
+dotnet run --project tests/AS2.ModApi.Tests       # 245 checks
 dotnet run --project tests/AS2.Bootstrap.Tests    # 68 checks
 ```
 

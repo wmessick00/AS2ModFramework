@@ -71,6 +71,27 @@
     <Compile Include="..\..\src\AS2.ModApi\AS2Events.cs"       Link="Production\AS2Events.cs" />
     <Compile Include="..\..\src\AS2.ModApi\Patches.cs"         Link="Production\Patches.cs" />
 
+    <!--
+      The game's bus, and the two files that hold the locks around it. MessengerBridge decides once
+      per message whether this call is the one that subscribes; AS2GameEvents guards every += and -=
+      with a Gate and hands each raise a snapshot of the handler list.
+
+      Neither has ever shipped a bug, which is why they are here. They are the same shape as the two
+      above that did, the locking reads as style to anybody who has not been bitten by it, and a
+      racing check is the only reader that can tell a lock from decoration. See #46 and
+      ConcurrencyChecks.cs.
+
+      These reach the game harder than anything above: the four Messenger classes, Song and Vector3.
+      Shims.cs stands in for all of them. ScorecardReader, RideResult and SongInfo come along because
+      the bridge hands a scorecard to the event, and all three are field reads and value copies with
+      no Unity in them.
+    -->
+    <Compile Include="..\..\src\AS2.ModApi\MessengerBridge.cs" Link="Production\MessengerBridge.cs" />
+    <Compile Include="..\..\src\AS2.ModApi\AS2GameEvents.cs"   Link="Production\AS2GameEvents.cs" />
+    <Compile Include="..\..\src\AS2.ModApi\ScorecardReader.cs" Link="Production\ScorecardReader.cs" />
+    <Compile Include="..\..\src\AS2.ModApi\RideResult.cs"      Link="Production\RideResult.cs" />
+    <Compile Include="..\..\src\AS2.ModApi\SongInfo.cs"        Link="Production\SongInfo.cs" />
+
     <!-- The assertions and the pass/fail summary, shared with tests\AS2.Bootstrap.Tests. -->
     <Compile Include="..\Check.cs" Link="Check.cs" />
   </ItemGroup>
