@@ -4,9 +4,10 @@ using System.Reflection;
 
 // ---- Stand-ins for what the game and its libraries provide -------------------------------------
 //
-// Everything below exists so that AS2Events.cs, Patches.cs and ModMenuRegistry.cs can be compiled
-// into this project and exercised cold. What is under test in those files is locking, snapshotting
-// and graceful degradation -- logic that needed no Unity to write and needs none to check.
+// Everything below exists so that AS2Events.cs, Patches.cs, ModMenuRegistry.cs, MessengerBridge.cs
+// and AS2GameEvents.cs can be compiled into this project and exercised cold. What is under test in
+// those files is locking, snapshotting and graceful degradation -- logic that needed no Unity to
+// write and needs none to check.
 //
 // One limit is worth stating plainly, because it decides what a green run here does and does not
 // mean. These shims copy the *shape* of the game's members, not the game's own assembly. If a
@@ -78,6 +79,158 @@ internal static class CodeEditor
 {
     internal static string skinPath { get; set; }
     internal static string modPath { get; set; }
+}
+
+// ---- The game's message bus --------------------------------------------------------------------
+//
+// MessengerBridge is the one file that touches these, and what is under test in it is Claim: the
+// decision about whether this call is the one that subscribes. Everything below is the smallest
+// stand-in that lets that decision be observed -- which listener names were claimed, and how many
+// times each one reached AddListener.
+//
+// This copy locks where the game's does not. The real MessengerInternal.eventTable is a plain
+// Dictionary written with no lock at all, which is exactly why MessengerBridge holds a Gate; but a
+// shim that reproduced the corruption would make a racing check fail for its own reasons. The
+// assertion worth making is that the bridge calls AddListener once per name however many threads
+// arrive together, so this side stays trustworthy and lets the failure be the bridge's.
+
+/// <summary>The shared event table all four Messenger classes alias, as much as is under test</summary>
+internal static class MessengerInternal
+{
+    private static readonly object Gate = new object();
+
+    /// <summary>The delegate type claimed for each name, which is the arity rule in fact form</summary>
+    private static readonly Dictionary<string, Type> Shapes = new Dictionary<string, Type>(StringComparer.Ordinal);
+
+    /// <summary>How many times each name reached AddListener. One is the only right answer</summary>
+    private static readonly Dictionary<string, int> Adds = new Dictionary<string, int>(StringComparer.Ordinal);
+
+    /// <summary>Set by a check to make the next add for this name fail, as a renamed message would</summary>
+    internal static string ThrowOn;
+
+    internal static void AddListener(string eventType, Delegate handler)
+    {
+        lock (Gate)
+        {
+            if (ThrowOn != null && ThrowOn == eventType)
+                throw new ListenerException("Simulated AddListener failure on " + eventType);
+
+            Type shape;
+            if (Shapes.TryGetValue(eventType, out shape) && shape != handler.GetType())
+                throw new ListenerException(
+                    "Tried to add a " + handler.GetType().Name + " listener for '" + eventType
+                    + "', which is already a " + shape.Name + ".");
+
+            Shapes[eventType] = handler.GetType();
+            Adds[eventType] = Adds.ContainsKey(eventType) ? Adds[eventType] + 1 : 1;
+        }
+    }
+
+    /// <summary>How many listeners were added for a name since the last <see cref="Reset"/></summary>
+    internal static int AddsFor(string eventType)
+    {
+        lock (Gate) { return Adds.ContainsKey(eventType) ? Adds[eventType] : 0; }
+    }
+
+    /// <summary>Every name that reached AddListener since the last <see cref="Reset"/></summary>
+    internal static List<string> Claimed()
+    {
+        lock (Gate) { return new List<string>(Adds.Keys); }
+    }
+
+    internal static void Reset()
+    {
+        lock (Gate) { Shapes.Clear(); Adds.Clear(); ThrowOn = null; }
+    }
+}
+
+/// <summary>What the game throws when a name is added with the wrong delegate type</summary>
+internal sealed class ListenerException : Exception
+{
+    internal ListenerException(string message) : base(message) { }
+}
+
+// The game's four handler shapes, in the global namespace where it declares them.
+internal delegate void Callback();
+internal delegate void Callback<T>(T arg1);
+internal delegate void Callback<T, U>(T arg1, U arg2);
+internal delegate void Callback<T, U, V>(T arg1, U arg2, V arg3);
+
+/// <summary>The no-argument bus</summary>
+internal static class Messenger
+{
+    internal static void AddListener(string eventType, Callback handler)
+    {
+        MessengerInternal.AddListener(eventType, handler);
+    }
+}
+
+/// <summary>The one-argument bus. It shares the table above, which is the whole arity problem</summary>
+internal static class Messenger<T>
+{
+    internal static void AddListener(string eventType, Callback<T> handler)
+    {
+        MessengerInternal.AddListener(eventType, handler);
+    }
+}
+
+/// <summary>The two-argument bus</summary>
+internal static class Messenger<T, U>
+{
+    internal static void AddListener(string eventType, Callback<T, U> handler)
+    {
+        MessengerInternal.AddListener(eventType, handler);
+    }
+}
+
+/// <summary>The three-argument bus</summary>
+internal static class Messenger<T, U, V>
+{
+    internal static void AddListener(string eventType, Callback<T, U, V> handler)
+    {
+        MessengerInternal.AddListener(eventType, handler);
+    }
+}
+
+/// <summary>
+/// The game's song record. Only the five members <see cref="AS2.ModApi.ScorecardReader"/> copies
+/// out are reproduced, and they are the shape the real ones have: public and mutable, which is the
+/// reason a SongInfo copy goes to mods instead.
+/// </summary>
+internal sealed class Song
+{
+    internal string Name { get; set; }
+    internal string Path { get; set; }
+    internal Artist artist { get; set; }
+    internal string identifier { get; set; }
+    internal float DurationSeconds { get; set; }
+}
+
+/// <summary>The game keeps a song's artist on an object of its own</summary>
+internal sealed class Artist
+{
+    internal string Name { get; set; }
+}
+
+namespace UnityEngine
+{
+    /// <summary>
+    /// The one Unity type that reaches a mod, and the only reason it can: it is a value type, so a
+    /// subscriber to TrafficCollected gets a copy and can write nothing back through it.
+    ///
+    /// Public because AS2GameEvents puts it in a public event signature, and an internal stand-in
+    /// there would not compile.
+    /// </summary>
+    public struct Vector3
+    {
+        public float x;
+        public float y;
+        public float z;
+
+        public Vector3(float x, float y, float z) { this.x = x; this.y = y; this.z = z; }
+
+        public override string ToString() { return "(" + x + ", " + y + ", " + z + ")"; }
+    }
 }
 
 namespace HarmonyLib

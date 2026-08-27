@@ -31,6 +31,17 @@ on:
   pull_request:
   workflow_dispatch:
 
+# The job checks out the repo and runs two console apps. It writes nothing back, so the token it
+# runs with should be able to write nothing either.
+#
+# Leave this key out and GITHUB_TOKEN inherits whatever the repository default grants, which is
+# often write. This workflow triggers on pull_request, so that default is handed to a job running
+# a fork's branch. Naming the one scope the job needs means a compromised action, or a step
+# somebody adds later, is already holding the smallest token there is. Same reasoning as the
+# pinned SHAs below, from the other direction.
+permissions:
+  contents: read
+
 jobs:
   cold-checks:
     name: AS2.ModApi and AS2.Bootstrap
