@@ -104,6 +104,21 @@ Releases are built locally, never on CI — `AS2.ModApi` compile-references the 
 which are not redistributable. [`tools/pack.ps1`](tools/pack.ps1) builds, verifies and archives;
 `-Publish` uploads. BepInEx is redistributed unmodified.
 
+`-Publish` also decides the version. `ModApiPlugin.Version` is still the one place it lives, and
+still what BepInEx prints in `LogOutput.log`, but you no longer edit it: the script writes it,
+commits it and pushes it before the tag is created. What it writes comes from comparing the public
+surface of the DLL about to ship against the DLL in the last release — a public member removed is a
+major, members added is a minor — and, when the surface is unchanged, from which paths the diff
+since the last tag touched. A diff of only docs, tests or CI is **refused**, because the DLL would
+be byte-identical to the one already published.
+
+```powershell
+.\tools\pack.ps1                              # pack only; changes no tracked file
+.\tools\pack.ps1 -Publish                     # decide, bump, commit, push, release
+.\tools\pack.ps1 -Publish -Bump major         # override the decided level
+.\tools\pack.ps1 -Publish -ReleaseVersion 1.0.0   # override the version outright
+```
+
 ## Compatibility
 
 | | |

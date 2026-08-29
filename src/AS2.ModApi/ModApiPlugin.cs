@@ -17,6 +17,19 @@ namespace AS2.ModApi
     {
         public const string Id = "as2.modapi";
         public const string Name = "Audiosurf 2 Mod API";
+
+        /// <summary>
+        /// The single source of truth for the version. tools\pack.ps1 greps this constant to name
+        /// the release archives, and BepInEx prints it in LogOutput.log, so a downloaded file name
+        /// and a user's log line always agree. Assembly version resources are off
+        /// (GenerateAssemblyInfo in Directory.Build.props), so there is nothing else to keep in step.
+        /// <para>
+        /// Do not edit this by hand. tools\pack.ps1 -Publish decides the next version from what
+        /// changed since the last release -- for this assembly, mostly from what happened to the
+        /// public surface below -- writes it here, and commits it. Editing it yourself is still
+        /// honoured, because a constant already ahead of the last published tag ships untouched.
+        /// </para>
+        /// </summary>
         public const string Version = "0.2.1";
 
         /// <summary>The log source, so the rest of the assembly logs without threading a reference</summary>
