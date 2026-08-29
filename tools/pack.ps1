@@ -36,6 +36,20 @@
     After packing, create the GitHub release and upload the zip and its checksum. Needs the GitHub
     CLI; without it the script prints the manual upload steps instead.
 
+    This is also the only mode that writes anything: it takes the version constant to the value
+    tools\Get-NextVersion.ps1 decided, commits it, and pushes it before the release is created.
+    Packing without it changes no tracked file.
+
+.PARAMETER Bump
+    Override the decided level: major, minor or patch. Also lifts the refusal when the only thing
+    that changed since the last release was documentation, tests or CI.
+
+.PARAMETER ReleaseVersion
+    Override the version outright. Beats -Bump and the decision both. Three numbers.
+
+    Not -Version. PowerShell variable names are case-insensitive, so a -Version parameter and this
+    script's own $version are one variable, and reading the constant would overwrite the override.
+
 .EXAMPLE
     .\tools\pack.ps1
     Builds, downloads BepInEx if needed, and writes build\dist\AS2ModFramework-<version>.zip
@@ -49,7 +63,9 @@ param(
     [string]$AudiosurfDir,
     [string]$Configuration = 'Release',
     [switch]$SkipHashCheck,
-    [switch]$Publish
+    [switch]$Publish,
+    [ValidateSet('major', 'minor', 'patch')][string]$Bump,
+    [string]$ReleaseVersion
 )
 
 $ErrorActionPreference = 'Stop'
@@ -70,6 +86,38 @@ $stageDir = Join-Path $repoRoot 'build\stage'
 $distDir  = Join-Path $repoRoot 'build\dist'
 $cacheDir = Join-Path $repoRoot 'build\cache'
 $stageCore = Join-Path $stageDir 'BepInEx\core'
+
+. (Join-Path $PSScriptRoot 'ReleaseGit.ps1')
+
+# The one file the version lives in. BepInEx prints it in LogOutput.log because it is an argument
+# to [BepInPlugin], so a release filename and a user's log line always agree.
+$versionFile = Join-Path $repoRoot 'src\AS2.ModApi\ModApiPlugin.cs'
+
+# The release asset carrying the DLL whose public surface decides a major or a minor.
+# AS2.ModApi only. AS2.Bootstrap is the doorstop entry point, not something any mod compiles
+# against, so its surface is not a contract and a change in it is not a breaking change.
+$assetPattern = 'AS2ModApi-*.zip'
+$assetEntry   = 'BepInEx/plugins/AS2.ModApi.dll'
+
+# Rule 2 in Get-NextVersion.ps1, for when the public surface came out identical.
+#
+# There are no minor paths here on purpose. This repo ships a library, so its contract IS its
+# public API, and the surface comparison already owns that verdict. A path table that also claimed
+# minor would only ever disagree with it.
+$MinorPaths = @()
+
+# Changing any of these cannot change the bytes in the archive, so a release built from them would
+# be identical to the one before it and the new number would be a lie.
+# Note that tools\ is NOT here: README.txt and THIRD-PARTY-NOTICES.txt are written from here-strings
+# in this script, so editing it does change what ships.
+$NoBumpPaths = @(
+    'docs/*',
+    'tests/*',
+    '.github/*',
+    '*.md',
+    'LICENSE*',
+    '.gitignore'
+)
 
 function Write-Step($message) { Write-Host "==> $message" -ForegroundColor Cyan }
 
@@ -97,13 +145,22 @@ release. Point the script at it:
 
 # Read off the constant, not the assembly. GenerateAssemblyInfo is off in Directory.Build.props, so
 # the DLLs carry no version resource.
-# The constant is also what BepInEx prints in LogOutput.log, so a release filename and a user's log
-# line always agree.
-$pluginSource = Get-Content (Join-Path $repoRoot 'src\AS2.ModApi\ModApiPlugin.cs') -Raw
+# This is only the starting point now. Section 4a decides what the release is actually numbered.
+$pluginSource = Get-Content $versionFile -Raw
 if ($pluginSource -notmatch 'const\s+string\s+Version\s*=\s*"([^"]+)"') {
     throw 'Could not read ModApiPlugin.Version from src\AS2.ModApi\ModApiPlugin.cs'
 }
 $version = $Matches[1]
+
+# Before the download, before the build. Publishing rewrites a tracked source file and pushes it,
+# and every reason that cannot happen is knowable now. Finding out after BepInEx is staged and two
+# assemblies are built is finding out too late.
+$upstream = $null
+if ($Publish) {
+    Write-Step 'Checking the repository can publish'
+    $upstream = Assert-PublishReady $repoRoot
+    Write-Host "    $($upstream.Slug) via $($upstream.Remote)/$($upstream.Branch)"
+}
 
 Write-Step "Packing AS2ModFramework $version"
 Write-Host "    game: $AudiosurfDir"
@@ -192,30 +249,108 @@ foreach ($required in @('BepInEx.dll', '0Harmony.dll', 'BepInEx.Preloader.dll'))
 
 # ---- 4. Build ---------------------------------------------------------------------------------
 
-Write-Step 'Building AS2.Bootstrap and AS2.ModApi'
+# A function because section 4a builds a second time. The version constant is an argument to
+# [BepInPlugin], so it is baked into the assembly: the surface has to be read off a build made
+# before the bump, and the DLL that ships has to come from one made after it. Two builds of a
+# single net35 assembly each cost seconds, and there is no way to have both facts from one.
+function Invoke-ProjectBuild {
+    # Environment variables rather than -p:. Both values are directory paths that must keep a
+    # trailing separator, and a trailing backslash inside a quoted -p: argument escapes the quote.
+    # Directory.Build.props guards both with a Condition, so these win.
+    $env:AudiosurfDir   = $AudiosurfDir
+    $env:BepInExCoreDir = "$stageCore\"
 
-# Environment variables rather than -p:. Both values are directory paths that must keep a trailing
-# separator, and a trailing backslash inside a quoted -p: argument escapes the quote.
-# Directory.Build.props guards both with a Condition, so these win.
-$env:AudiosurfDir   = $AudiosurfDir
-$env:BepInExCoreDir = "$stageCore\"
-
-try {
-    foreach ($proj in @('src\AS2.Bootstrap\AS2.Bootstrap.csproj', 'src\AS2.ModApi\AS2.ModApi.csproj')) {
-        & dotnet build (Join-Path $repoRoot $proj) -c $Configuration --nologo
-        if ($LASTEXITCODE -ne 0) { throw "Build failed: $proj" }
+    try {
+        foreach ($proj in @('src\AS2.Bootstrap\AS2.Bootstrap.csproj', 'src\AS2.ModApi\AS2.ModApi.csproj')) {
+            & dotnet build (Join-Path $repoRoot $proj) -c $Configuration --nologo
+            if ($LASTEXITCODE -ne 0) { throw "Build failed: $proj" }
+        }
+    }
+    finally {
+        Remove-Item Env:\AudiosurfDir   -ErrorAction SilentlyContinue
+        Remove-Item Env:\BepInExCoreDir -ErrorAction SilentlyContinue
     }
 }
-finally {
-    Remove-Item Env:\AudiosurfDir   -ErrorAction SilentlyContinue
-    Remove-Item Env:\BepInExCoreDir -ErrorAction SilentlyContinue
-}
+
+Write-Step 'Building AS2.Bootstrap and AS2.ModApi'
+Invoke-ProjectBuild
 
 $bootstrapDll = Join-Path $repoRoot 'build\AS2ModLoader\AS2.Bootstrap.dll'
 $modApiDll    = Join-Path $repoRoot 'build\plugins\AS2.ModApi.dll'
 
 foreach ($dll in @($bootstrapDll, $modApiDll)) {
     if (-not (Test-Path $dll)) { throw "Expected build output is missing: $dll" }
+}
+
+# ---- 4a. The version ----------------------------------------------------------------------------
+#
+# What changed since the last release decides the number. tools\Get-NextVersion.ps1 holds the rules
+# and the reasoning; this reports the verdict and acts on it.
+#
+# Only -Publish writes. Packing on its own leaves every tracked file alone and says what a publish
+# would have done, which is what this script has always promised.
+
+Write-Step 'Deciding the version'
+
+# Splatted rather than passed straight through. An unsupplied -Bump is an empty string here, and
+# an empty string is not in the decider's ValidateSet -- absent has to stay absent.
+$override = @{}
+if ($Bump)           { $override['Bump'] = $Bump }
+if ($ReleaseVersion) { $override['ForceVersion'] = $ReleaseVersion }
+
+$verdict = & (Join-Path $PSScriptRoot 'Get-NextVersion.ps1') `
+    -RepoRoot $repoRoot `
+    -Assembly $modApiDll `
+    -CurrentVersion $version `
+    -AssetPattern $assetPattern `
+    -AssetEntry $assetEntry `
+    -MinorPaths $MinorPaths `
+    -NoBumpPaths $NoBumpPaths `
+    -AudiosurfDir $AudiosurfDir `
+    @override
+
+foreach ($line in $verdict.Reasons) { Write-Host "    $line" }
+
+# Only a publish is refused. Packing is how you get an archive to install and try, and an unchanged
+# one is still worth building -- nothing has been claimed to anybody until it is uploaded.
+if ($verdict.Level -eq 'none') {
+    if (-not $Publish) {
+        Write-Host "    nothing that ships changed; packing $version again anyway" -ForegroundColor Yellow
+    }
+    else {
+        throw @"
+Nothing that ships has changed since the last release.
+
+The DLL would be identical to the one already published, so a new version number would say a
+change happened that did not. Documentation, tests and CI are all outside the archive.
+
+If the release is worth cutting anyway, name the level yourself:
+
+    .\tools\pack.ps1 -Publish -Bump patch
+"@
+    }
+}
+
+Write-Host "    verdict $($verdict.Level): $version -> $($verdict.Next)" -ForegroundColor Green
+
+# Not every publish bumps. A first release and an already-ahead constant both ship the value that
+# is on disk, so there is nothing to commit in either case and section 7 has to know that.
+$versionChanged = $false
+
+if ($verdict.Next -ne $version) {
+    if ($Publish) {
+        Write-Step "Taking the version to $($verdict.Next) and rebuilding"
+        & (Join-Path $PSScriptRoot 'Set-Version.ps1') -Path $versionFile -Version $verdict.Next | Out-Null
+        $version = $verdict.Next
+        $versionChanged = $true
+        Invoke-ProjectBuild
+        foreach ($dll in @($bootstrapDll, $modApiDll)) {
+            if (-not (Test-Path $dll)) { throw "Expected build output is missing after the rebuild: $dll" }
+        }
+    }
+    else {
+        Write-Host "    packing $version as it stands; -Publish would take it to $($verdict.Next)" -ForegroundColor Yellow
+    }
 }
 
 # ---- 4b. Invariants -----------------------------------------------------------------------------
@@ -359,8 +494,11 @@ function New-Package($sourceDir, $name) {
     Set-Content -Path $sha -Value "$hash  $name.zip" -Encoding ascii
 
     Write-Step "Wrote $name.zip"
+    # Write-Host, not a bare string. A bare string here goes to the pipeline, which means it joins
+    # the object below in what this function returns -- and then $packages[0] is a filename rather
+    # than the package, and $packages[0].Zip is nothing at all.
     Get-ChildItem $sourceDir -Recurse -File | ForEach-Object {
-        "    " + $_.FullName.Substring($sourceDir.Length + 1)
+        Write-Host ("    " + $_.FullName.Substring($sourceDir.Length + 1))
     }
     Write-Host "    SHA256  $hash" -ForegroundColor Green
     Write-Host ""
@@ -450,21 +588,14 @@ if (-not $Publish) {
     return
 }
 
-$gh = Get-Command gh -ErrorAction SilentlyContinue
-if (-not $gh) {
-    $assetList = ($packages | ForEach-Object { "       $($_.Name)`n       $($_.Name).sha256" }) -join "`n"
-    $hashList  = ($packages | ForEach-Object { "       $($_.Hash)  $($_.Name)" }) -join "`n"
-    throw @"
--Publish needs the GitHub CLI, which is not installed. Either install it from
-https://cli.github.com/ and re-run, or publish by hand:
-
-  1. https://github.com/wmessick00/AS2ModFramework/releases/new
-  2. Tag: $tag
-  3. Attach all six files from build\dist\:
-$assetList
-  4. Put the checksums in the release notes:
-$hashList
-"@
+# The bump reaches the remote before the tag does. gh release create tags whatever the default
+# branch points at, so a bump that is written but not pushed makes a tag whose source still says
+# the previous version -- which is exactly the agreement between a filename and a log line that
+# reading the version off a constant exists to keep.
+if ($versionChanged) {
+    Write-Step "Committing and pushing the version bump"
+    Save-VersionBump $repoRoot $versionFile $version $upstream
+    Write-Host "    pushed to $($upstream.Remote)/$($upstream.Branch)"
 }
 
 Write-Step "Creating release $tag"
@@ -494,7 +625,9 @@ Verify a download before extracting:
 $checksums
 "@
 
-& gh release create $tag @assets --title "AS2ModFramework $version" --notes $notes
+# --repo, because the remote is not assumed to be called origin. The slug came off the tracked
+# upstream in the preflight.
+& gh release create $tag @assets --repo $($upstream.Slug) --title "AS2ModFramework $version" --notes $notes
 if ($LASTEXITCODE -ne 0) { throw "gh release create failed for $tag" }
 
 Write-Step "Published $tag"
