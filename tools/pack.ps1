@@ -588,10 +588,10 @@ if (-not $Publish) {
     return
 }
 
-# The bump reaches the remote before the tag does. gh release create tags whatever the default
-# branch points at, so a bump that is written but not pushed makes a tag whose source still says
-# the previous version -- which is exactly the agreement between a filename and a log line that
-# reading the version off a constant exists to keep.
+# The bump reaches the remote before the tag does. The tag is created on the branch this pushed to,
+# so a bump that is written but not pushed makes a tag whose source still says the previous version
+# -- which is exactly the agreement between a filename and a log line that reading the version off a
+# constant exists to keep.
 if ($versionChanged) {
     Write-Step "Committing and pushing the version bump"
     Save-VersionBump $repoRoot $versionFile $version $upstream
@@ -627,7 +627,13 @@ $checksums
 
 # --repo, because the remote is not assumed to be called origin. The slug came off the tracked
 # upstream in the preflight.
-& gh release create $tag @assets --repo $($upstream.Slug) --title "AS2ModFramework $version" --notes $notes
+#
+# --target, because without it gh tags whatever the default branch points at, which is not
+# necessarily the branch Save-VersionBump just pushed to. Assert-PublishReady has already refused
+# any branch but the default one, so this names the same commit either way -- the point of saying it
+# is that the tag now follows the push instead of the two agreeing by luck.
+# AS2-SkinSettings issue #47, against the copy of ReleaseGit.ps1 these three repos share.
+& gh release create $tag @assets --repo $($upstream.Slug) --target $($upstream.Branch) --title "AS2ModFramework $version" --notes $notes
 if ($LASTEXITCODE -ne 0) { throw "gh release create failed for $tag" }
 
 Write-Step "Published $tag"

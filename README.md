@@ -112,6 +112,11 @@ major, members added is a minor — and, when the surface is unchanged, from whi
 since the last tag touched. A diff of only docs, tests or CI is **refused**, because the DLL would
 be byte-identical to the one already published.
 
+Run `-Publish` from `main`. The bump is pushed to whatever branch the checkout tracks, and the
+release is tagged on the branch GitHub calls the default one, so anywhere else those are two
+different commits and the tag would carry a version the tagged source does not have. The script
+checks this before it builds and refuses rather than releasing half of it.
+
 ```powershell
 .\tools\pack.ps1                              # pack only; changes no tracked file
 .\tools\pack.ps1 -Publish                     # decide, bump, commit, push, release
