@@ -178,9 +178,16 @@ Add-Type -Path $CecilPath | Out-Null
 # public when the member is, so the method pass covers them -- a removed public property shows up as
 # get_Foo going missing, which is the same fact said in IL terms.
 #
-# Field constants are rendered by signature and never by value. The version constant is itself a
-# public field, so rendering values would make every single release a surface change and this rule
-# would report a minor forever.
+# Field constants are rendered by signature and never by value, with one exception. The version
+# constant is itself a public field, so rendering values generally would make every single release a
+# surface change and this rule would report a minor forever.
+#
+# The exception is an enum member, whose value is rendered as well. A C# compiler inlines an enum
+# member into its caller as a plain ldc.i4, so a mod built against the old numbering keeps sending
+# the old number after a reorder. Renaming nothing and renumbering everything is a break, and the
+# signature line alone cannot see it -- the names come back identical and the verdict falls through
+# to patch. Only enum members are rendered this way, which is also what keeps the version constant
+# out of it: that one is a const on an ordinary class, not on an enum.
 #
 # Protected is included alongside public. A protected member is part of the contract for anyone
 # subclassing the type, and it costs nothing to be conservative here.
@@ -247,7 +254,10 @@ function Get-PublicSurface($assemblyPath) {
             foreach ($f in $type.Fields) {
                 if (-not ($f.IsPublic -or $f.IsFamily)) { continue }
                 $static = if ($f.IsStatic) { 'static ' } else { '' }
-                $set.Add("$static$($type.FullName)::$($f.Name) : $(Get-TypeName $f.FieldType)") | Out-Null
+                # HasConstant keeps the enum's own value__ field, which carries no constant, off the
+                # value form and on the plain signature line every other field gets.
+                $value = if ($type.IsEnum -and $f.HasConstant) { " = $($f.Constant)" } else { '' }
+                $set.Add("$static$($type.FullName)::$($f.Name) : $(Get-TypeName $f.FieldType)$value") | Out-Null
             }
         }
 

@@ -18,9 +18,9 @@
          exempt: the game has getters with side effects -- SongSync.get_Playhead broadcasts
          "SongStartedPlaying" -- so "it is only a getter" is not a safety argument here.
       5. Harmony patches stay postfix-only, and stay funnelled through the single helper.
-      6. No public member exposes a type from Assembly-CSharp. This is what keeps the game events
-         read-only for a subscriber, rather than only for the framework: a mod is handed immutable
-         copies, so it has nothing to write back through.
+      6. No public member exposes a type from Assembly-CSharp, and no public type inherits one.
+         This is what keeps the game events read-only for a subscriber, rather than only for the
+         framework: a mod is handed immutable copies, so it has nothing to write back through.
 
     Every failure prints the method and the IL offset, so a violation is one line to read.
 
@@ -409,7 +409,7 @@ if ($patchCallSites.Count -eq 0) {
     Add-Finding 5 $PatchHelper 'no Harmony.Patch call was found at all; has the helper been renamed?'
 }
 
-# ---- Rule 6: no game type in a public signature ---------------------------------------------------
+# ---- Rule 6: no game type in a public signature, and none inherited -------------------------------
 #
 # Narrower than "no game, Unity or Lua type": AS2Ui takes and returns Rect, Color and GUIStyle, and
 # AS2Events.LuaStateCreated carries a LuaInterface.Lua by design. What must never appear is a type
@@ -441,6 +441,20 @@ function Test-SignatureMentionsGame($typeRef) {
 
 foreach ($type in $allTypes) {
     if (-not (Test-PublicType $type)) { continue }
+
+    # Inheritance is exposure, and it is the one shape the member walk below cannot see. A public
+    # type deriving from a game type, or implementing a game-defined interface, hands a subscriber
+    # a live game object through the base -- every inherited member arrives with it, so no field,
+    # property or parameter declared here has to mention the game for the leak to happen.
+    if (Test-SignatureMentionsGame $type.BaseType) {
+        Add-Finding 6 $type.FullName "derives from the game type $($type.BaseType.FullName)"
+    }
+
+    foreach ($i in $type.Interfaces) {
+        if (Test-SignatureMentionsGame $i.InterfaceType) {
+            Add-Finding 6 $type.FullName "implements the game interface $($i.InterfaceType.FullName)"
+        }
+    }
 
     foreach ($f in $type.Fields) {
         if (-not ($f.IsPublic)) { continue }
@@ -499,6 +513,6 @@ Write-Host '    rule 2  no game field written' -ForegroundColor Green
 Write-Host '    rule 3  no reflective setter called' -ForegroundColor Green
 Write-Host '    rule 4  every call into the game is on the reviewed allowlist' -ForegroundColor Green
 Write-Host '    rule 5  Harmony patches are postfix-only and go through one helper' -ForegroundColor Green
-Write-Host '    rule 6  no public member exposes a game type' -ForegroundColor Green
+Write-Host '    rule 6  no public member exposes a game type, and no public type inherits one' -ForegroundColor Green
 Write-Host 'All invariants hold.' -ForegroundColor Green
 exit 0
