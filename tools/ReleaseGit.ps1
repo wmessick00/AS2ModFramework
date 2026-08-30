@@ -9,6 +9,12 @@
     version. The whole point of reading the version off a constant is that a downloaded file name
     and a user's log line agree, and an unpushed bump quietly breaks exactly that.
 
+    That same ordering is why a publish only runs on the default branch. The push follows the
+    tracked upstream and the tag follows the repository's default branch, so on any other branch
+    the bump lands one place and the release is cut from another. Assert-PublishReady compares the
+    two before the build starts, and pack.ps1 names the branch on gh release create rather than
+    leaving it implied.
+
     Everything here is checked before anything is built. A release that fails on the push has
     already replaced the maintainer's build output and rewritten a tracked source file, so the
     checks that can run early do run early.
@@ -59,6 +65,18 @@ function Get-Upstream($repoRoot) {
     return [pscustomobject]@{ Remote = $remote; Branch = $branch; Url = $url; Slug = $slug }
 }
 
+# The branch the repository itself releases from. gh release create is given no --target by default,
+# so this is the branch it tags whatever the local checkout is sitting on. Asked of the repository
+# rather than hard-coded to main: this file is shared verbatim by three repositories, and a name
+# that is wrong for one of them would fail open, which is the failure this check exists to close.
+function Get-DefaultBranch($slug) {
+    $r = Invoke-Native gh @('repo', 'view', $slug, '--json', 'defaultBranchRef', '--jq', '.defaultBranchRef.name')
+    if ($r.ExitCode -ne 0 -or -not $r.Output) {
+        throw "Could not read the default branch of $slug. -Publish needs it to know the tag lands on the commit it just pushed."
+    }
+    return "$($r.Output)".Trim()
+}
+
 # Every reason a publish cannot finish, reported in one place and before the build starts.
 function Assert-PublishReady($repoRoot) {
     $r = Invoke-Native git @('-C', $repoRoot, 'rev-parse', '--is-inside-work-tree')
@@ -100,6 +118,24 @@ files to attach and the tag to attach them to, for uploading by hand.
     $r = Invoke-Native gh @('auth', 'status')
     if ($r.ExitCode -ne 0) {
         throw "The GitHub CLI is installed but not signed in. Run: gh auth login"
+    }
+
+    # Last, because it is the one check that needs the network and the sign-in above. The bump is
+    # pushed to the tracked upstream and the tag is created on the default branch, and until here
+    # nothing has ever said those are the same branch. AS2-SkinSettings issue #47, and this
+    # file is shared, so the fix is shared.
+    $default = Get-DefaultBranch $upstream.Slug
+    if ($upstream.Branch -ne $default) {
+        throw @"
+The current branch tracks $($upstream.Remote)/$($upstream.Branch), but $($upstream.Slug) releases from $default.
+
+The bump would be pushed to $($upstream.Branch) and the tag created on $default, so the release
+would carry a version constant the tagged commit does not have -- which is the disagreement
+between a file name and a log line that reading the version off a constant exists to prevent.
+
+Merge this branch into $default and re-run there, or pack without -Publish to get the archive and
+upload it by hand.
+"@
     }
 
     return $upstream
