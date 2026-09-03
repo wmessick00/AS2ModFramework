@@ -30,7 +30,7 @@ namespace AS2.ModApi
         /// honoured, because a constant already ahead of the last published tag ships untouched.
         /// </para>
         /// </summary>
-        public const string Version = "0.2.1";
+        public const string Version = "0.2.2";
 
         /// <summary>The log source, so the rest of the assembly logs without threading a reference</summary>
         // BepInEx tags each plugin's source, so these lines are attributed to the API and not to
