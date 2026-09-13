@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
@@ -220,6 +220,75 @@ namespace AS2.ModApi.Tests
             True("Enumerate says why it refused", ModApiPlugin.Log.Mentions("Refusing"));
 
             DeviceNamesAreRefused();
+            WildcardsAreRefusedWhateverThePlatformThinks();
+        }
+
+
+        // ---- Regression: issue #54 -------------------------------------------------------------
+
+        /// <summary>
+        /// The disallowed set is written out in PathGuard rather than asked of the platform, and
+        /// these two checks are what keep that honest.
+        ///
+        /// The first is the contract: a name carrying a wildcard, a redirection character or a
+        /// control character is not a bare file name and is refused. On Windows it passed before
+        /// the fix too, because GetInvalidFileNameChars() returns all of these here -- it is the
+        /// platform this suite runs on that makes the fix look like it changed nothing.
+        ///
+        /// The second is the one that can fail. It asserts the hand-written list still covers
+        /// everything the running platform would have rejected on its own, so a list that falls
+        /// behind is caught here rather than by a player. On Windows that compares against the full
+        /// set of about forty, which is the only place the list can be shown to be complete.
+        /// </summary>
+        private static void WildcardsAreRefusedWhateverThePlatformThinks()
+        {
+            var refused = new List<string>
+            {
+                "wild*card.json", "who?.json", "say\"quote\".json",
+                "less<than.json", "more>than.json", "pipe|it.json"
+            };
+
+            // Built rather than written, because a control character in a source literal is a
+            // character the next reader cannot see.
+            refused.Add("bell" + (char)7 + ".json");
+            refused.Add("tab" + (char)9 + "stop.json");
+
+            foreach (string bad in refused)
+            {
+                ModApiPlugin.Log.Clear();
+                False("HasFile refuses '" + Readable(bad) + "', whatever this platform calls legal",
+                      TargetResolver.HasFile("skins/Plain", bad));
+
+                // False on its own proves nothing here: a name nobody created is missing as
+                // well as refused, and both answer false. The log line is what says which.
+                True("and says it refused the name rather than simply not finding it",
+                     ModApiPlugin.Log.Mentions("Refusing the file name"));
+            }
+
+            // The check with teeth. Mono returns two characters on Linux and about forty on
+            // Windows, so on this runner the comparison is against the rich set -- and a
+            // hand-written list is only ever as good as what it is compared with.
+            char[] ours = PathGuard.DisallowedCharacters();
+            char[] platform = Path.GetInvalidFileNameChars();
+
+            var missing = new List<char>();
+            foreach (char c in platform)
+                if (Array.IndexOf(ours, c) < 0) missing.Add(c);
+
+            True("PathGuard's own list covers every character this platform calls invalid ("
+                 + platform.Length + " checked, " + missing.Count + " missing)", missing.Count == 0);
+        }
+
+        /// <summary>A name as it should read in a failure message, with its control codes visible</summary>
+        private static string Readable(string name)
+        {
+            var sb = new System.Text.StringBuilder();
+            foreach (char c in name)
+            {
+                if (c < ' ') sb.Append("\\x").Append(((int)c).ToString("X2"));
+                else sb.Append(c);
+            }
+            return sb.ToString();
         }
 
         // ---- Regression: issue #15 -------------------------------------------------------------
