@@ -1,0 +1,29 @@
+# Keeps the pinned action SHAs moving.
+#
+# The workflow pins actions/checkout and actions/setup-dotnet to full commit SHAs rather than to
+# version tags, because a tag is mutable: if upstream moves it, the workflow runs different code on
+# the next push and nothing here shows that anything changed.
+#
+# A pin without an updater trades a moving target for a frozen one. The SHA that was current when it
+# was written stays there, and a fix upstream -- including a security fix -- never arrives, because
+# arriving is exactly what the pin prevents. So the pin and this file are two halves of one
+# decision, and neither is right on its own.
+#
+# What Dependabot opens is a pull request that changes the SHA and the trailing version comment
+# together. It is reviewed like any other change to CI. Nothing here updates itself.
+#
+# github-actions only. Every project in this repository resolves its references out of the game's
+# own Audiosurf2_Data\Managed folder rather than from NuGet, and the check projects take either no
+# package at all or a pinned few, so there is no package ecosystem here for Dependabot to watch.
+version: 2
+
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "monthly"
+    # One pull request at a time. There are two actions, they move a few times a year, and a queue
+    # of them would be noise rather than news.
+    open-pull-requests-limit: 2
+    commit-message:
+      prefix: "Update"
