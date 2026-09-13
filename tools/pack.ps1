@@ -54,13 +54,14 @@
     A text file describing what changed, which becomes the "What changed" section at the top of the
     release notes. Written for a player, not for a reviewer.
 
-    Omit it and the section is filled from the version decision instead: the added and removed
-    public signatures, and the paths that moved the number. That is accurate and reads like a
-    machine diff, which is why the parameter exists.
+    A publish refuses without this or -ChangeLogText. The section is not decoration: the Nexus
+    workflow posts it as that release's changelog, and it is what somebody sees when they are
+    deciding whether to press update. There is no generated fallback, because the one this used to
+    have listed changed file paths and moved signatures -- accurate, and not a changelog.
 
-    The section matters beyond GitHub. The Nexus workflow reads the release body and posts
-    everything above the nexus:end marker as that release's changelog, so this text is what a mod
-    manager shows somebody deciding whether to update.
+.PARAMETER ChangeLogText
+    The same thing inline, for a release whose change list is a line or two and does not need a
+    file. Beats -ChangeLog if both are given.
 
 .EXAMPLE
     .\tools\pack.ps1
@@ -78,7 +79,8 @@ param(
     [switch]$Publish,
     [ValidateSet('major', 'minor', 'patch')][string]$Bump,
     [string]$ReleaseVersion,
-    [string]$ChangeLog
+    [string]$ChangeLog,
+    [string]$ChangeLogText
 )
 
 $ErrorActionPreference = 'Stop'
@@ -146,6 +148,28 @@ $AudiosurfDir = $AudiosurfDir.TrimEnd('\')
 # the maintainer's build output, which is the same reason Assert-PublishReady runs where it does.
 if ($ChangeLog -and -not (Test-Path $ChangeLog)) {
     throw "No change log at: $ChangeLog"
+}
+
+# Refused here rather than at the release step, for the reason Assert-PublishReady runs early: by
+# then the build output has been replaced and a tracked source file rewritten.
+#
+# There is no generated fallback on purpose. This used to fall back to the version decision's own
+# reasons, which produced lines like "patch src/AS2.ModApi/Str.cs" -- true, and not something to
+# show somebody deciding whether to update. A changelog nobody wrote is worse than being made to
+# write one.
+if ($Publish -and -not $ChangeLog -and -not $ChangeLogText) {
+    throw @"
+A publish needs a change list.
+
+It becomes the "What changed" section of the release notes, and the Nexus workflow posts that
+section as this version's changelog. Write it for somebody deciding whether to update.
+
+    .\tools\pack.ps1 -Publish -ChangeLogText "Archives now use forward slashes; older ones were malformed."
+
+or, for more than a line or two:
+
+    .\tools\pack.ps1 -Publish -ChangeLog .\notes-0.2.3.txt
+"@
 }
 
 # Checked up front and by name. The alternative is an MSBuild reference-resolution error that
@@ -685,19 +709,17 @@ $checksums = ($packages | ForEach-Object { "    $($_.Hash)  $($_.Name)" }) -join
 # What changed goes at the top, above the marker.
 #
 # .github\workflows\publish-to-nexus.yml posts everything above nexus:end as this version's Nexus
-# changelog. Below the marker are install steps and a checksum table, which mean nothing on a mod
-# page -- somebody reading a changelog there is deciding whether to press update.
-if ($ChangeLog) {
-    $changes = (Get-Content $ChangeLog -Raw).TrimEnd()
-}
-else {
-    # Section 4a already worked this out, printed it to the console and threw it away. Four spaces
-    # so Markdown renders it as the machine output it is, which is also the honest way to present
-    # it: it says which signatures moved, not why any of it matters. -ChangeLog is how you say why.
-    $changes = ($verdict.Reasons | ForEach-Object { "    $_" }) -join "`n"
-}
+# changelog, with the heading stripped because the mod page already prints "Version 0.2.2" over it.
+# Below the marker are install steps and a checksum table, which mean nothing on a mod page --
+# somebody reading a changelog there is deciding whether to press update.
+#
+# The preflight refused a publish without one of these, so neither branch can produce nothing.
+if ($ChangeLogText) { $changes = $ChangeLogText.TrimEnd() }
+else                { $changes = (Get-Content $ChangeLog -Raw).TrimEnd() }
 
-if (-not $changes) { $changes = "    no recorded change; version taken to $version by hand" }
+if (-not $changes.Trim()) {
+    throw "The change list is empty. It is posted as this version's changelog on Nexus, so it cannot be blank."
+}
 
 $notes = @"
 ## What changed
