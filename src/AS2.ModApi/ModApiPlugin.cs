@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using BepInEx;
 using BepInEx.Logging;
 using HarmonyLib;
@@ -65,8 +65,17 @@ namespace AS2.ModApi
         /// The API owns the single "Mod Menu" button in the game's settings dialog and the hub
         /// behind it, so that mods do not each add a button and overflow the row.
         /// </summary>
+        // GUI.depth is restored in a finally, and it is process-wide static state shared by every
+        // OnGUI in the frame -- so the same rule AS2Ui.Fill keeps for GUI.color and AS2Ui.Toggle
+        // keeps for GUI.matrix applies to it, for the same reason and with the same consequence
+        // Left set, it pins the depth for every other mod's GUI.Window and IMGUI call in this frame
+        // and in all of them after, because BepInEx loads this plugin once for the life of the
+        // process. That reads as a rendering-order bug in whichever mod drew next
+        // Set inside the try rather than before it: if EnsureStyles throws there is nothing to draw
+        // and nothing to reorder, and the depth should not move for a frame that drew nothing
         private void OnGUI()
         {
+            int previousDepth = GUI.depth;
             try
             {
                 AS2Ui.EnsureStyles();
@@ -78,6 +87,7 @@ namespace AS2.ModApi
                 Log.LogError("Mod Menu drawing failed; closing it. " + e);
                 AS2ModMenu.Close();
             }
+            finally { GUI.depth = previousDepth; }
         }
 
         /// <summary>

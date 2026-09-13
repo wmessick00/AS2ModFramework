@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Reflection;
 using System.Runtime.CompilerServices;
@@ -352,6 +352,24 @@ namespace AS2.ModApi
 
         /// <summary>Dim and wrapping, top-aligned, for prose that genuinely runs to several lines</summary>
         public static GUIStyle DimWrap { get; private set; }
+
+        /// <summary>The line height of a style, or the fallback when the styles are not built</summary>
+        // EnsureStyles logs and gives up rather than throwing, so every one of the properties above
+        // can still be null when a caller reads it -- that is deliberate, and it is what lets the
+        // next frame try again
+        // Every drawing method here already guards for it: ButtonBody returns false on a null
+        // Label, Header returns its measured height on a null Title, the row helpers check the
+        // style they are about to use. A caller measuring a style rather than drawing with one had
+        // nothing to reach for, so it read the height straight off the property and threw
+        // BuildStyles assigns in order, so a throw partway leaves the earlier styles built and the
+        // later ones null. Guarding one style tells you nothing about the next -- which is why this
+        // takes the style rather than the caller testing a different one and assuming the set
+        // The fallback is a height, not zero: a row measured at zero collapses every entry onto one
+        // line, which reads as a layout bug rather than as styles that are not ready yet
+        public static float LineHeightOf(GUIStyle style, float fallback)
+        {
+            return style == null ? fallback : style.lineHeight;
+        }
 
         /// <summary>Builds the styles. Call at the top of OnGUI</summary>
         // GUIStyle construction is only legal inside OnGUI, which is why this is not in Awake
