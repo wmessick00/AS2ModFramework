@@ -50,6 +50,18 @@
     Not -Version. PowerShell variable names are case-insensitive, so a -Version parameter and this
     script's own $version are one variable, and reading the constant would overwrite the override.
 
+.PARAMETER ChangeLog
+    A text file describing what changed, which becomes the "What changed" section at the top of the
+    release notes. Written for a player, not for a reviewer.
+
+    Omit it and the section is filled from the version decision instead: the added and removed
+    public signatures, and the paths that moved the number. That is accurate and reads like a
+    machine diff, which is why the parameter exists.
+
+    The section matters beyond GitHub. The Nexus workflow reads the release body and posts
+    everything above the nexus:end marker as that release's changelog, so this text is what a mod
+    manager shows somebody deciding whether to update.
+
 .EXAMPLE
     .\tools\pack.ps1
     Builds, downloads BepInEx if needed, and writes build\dist\AS2ModFramework-<version>.zip
@@ -65,7 +77,8 @@ param(
     [switch]$SkipHashCheck,
     [switch]$Publish,
     [ValidateSet('major', 'minor', 'patch')][string]$Bump,
-    [string]$ReleaseVersion
+    [string]$ReleaseVersion,
+    [string]$ChangeLog
 )
 
 $ErrorActionPreference = 'Stop'
@@ -88,6 +101,7 @@ $cacheDir = Join-Path $repoRoot 'build\cache'
 $stageCore = Join-Path $stageDir 'BepInEx\core'
 
 . (Join-Path $PSScriptRoot 'ReleaseGit.ps1')
+. (Join-Path $PSScriptRoot 'PackArchive.ps1')
 
 # The one file the version lives in. BepInEx prints it in LogOutput.log because it is an argument
 # to [BepInPlugin], so a release filename and a user's log line always agree.
@@ -127,6 +141,12 @@ if (-not $AudiosurfDir) {
     $AudiosurfDir = 'C:\Program Files (x86)\Steam\steamapps\common\Audiosurf 2'
 }
 $AudiosurfDir = $AudiosurfDir.TrimEnd('\')
+
+# Read before anything is built. A missing change log found at the release step has already replaced
+# the maintainer's build output, which is the same reason Assert-PublishReady runs where it does.
+if ($ChangeLog -and -not (Test-Path $ChangeLog)) {
+    throw "No change log at: $ChangeLog"
+}
 
 # Checked up front and by name. The alternative is an MSBuild reference-resolution error that
 # never mentions Audiosurf at all.
@@ -467,14 +487,28 @@ UNINSTALLING
 Mods go in BepInEx\plugins\.
 "@
 
-Set-Content -Path (Join-Path $stageDir 'THIRD-PARTY-NOTICES.txt') -Value $notices -Encoding utf8
-Set-Content -Path (Join-Path $stageDir 'README.txt')              -Value $readme  -Encoding utf8
+# Into AS2ModLoader\ rather than the archive root, which is where these three used to go.
+#
+# Vortex links a managed mod's files into the game folder and merges the mods that share it, so a
+# file at the archive root lands directly beside Audiosurf2.exe. Two managed packages both carrying
+# README.txt then claim one path, and a user holding the loader and the API gets a file conflict
+# over a text file. Under a folder each package owns, there is nothing to collide.
+#
+# The notices travel with BepInEx\core\ either way: every package that carries the core also carries
+# AS2ModLoader\, so the LGPL obligation is satisfied by the same rule that solves the conflict.
+#
+# Cost, and it is a real one: somebody extracting the zip by hand no longer sees README.txt at the
+# top. The release notes point at the new path for that reason.
+$loaderDocs = Join-Path $stageDir 'AS2ModLoader'
+
+Set-Content -Path (Join-Path $loaderDocs 'THIRD-PARTY-NOTICES.txt') -Value $notices -Encoding utf8
+Set-Content -Path (Join-Path $loaderDocs 'README.txt')              -Value $readme  -Encoding utf8
 
 $license = Get-ChildItem $repoRoot -File |
            Where-Object { $_.BaseName -eq 'LICENSE' -or $_.BaseName -eq 'LICENCE' } |
            Select-Object -First 1
 
-if ($license) { Copy-Item $license.FullName $stageDir -Force }
+if ($license) { Copy-Item $license.FullName (Join-Path $loaderDocs 'LICENSE.txt') -Force }
 else { Write-Warning 'No LICENSE file in the repo root; the package will ship without one.' }
 
 # ---- 6. Zip and checksum ----------------------------------------------------------------------
@@ -499,11 +533,35 @@ if (-not (Test-Path $distDir)) { New-Item -ItemType Directory -Path $distDir | O
 # sha256sum format (lowercase hash, two spaces, filename) so it verifies with either
 # `sha256sum -c` or Get-FileHash. Published beside the zip so a download can be checked against
 # something other than the file it came with.
-function New-Package($sourceDir, $name) {
+#
+# $package is the name without the version, because that is what the layout contract is declared
+# against in tools\PackArchive.ps1. $name carries the version and only names the file.
+function New-Package($sourceDir, $package, $name) {
     $zipPath = Join-Path $distDir "$name.zip"
-    if (Test-Path $zipPath) { Remove-Item $zipPath -Force }
 
-    [IO.Compression.ZipFile]::CreateFromDirectory($sourceDir, $zipPath)
+    New-ZipFromDirectory -SourceDir $sourceDir -ZipPath $zipPath
+
+    # Checked on the archive rather than on the staging folder, because the archive is what gets
+    # uploaded and an entry name is not a file name. The separator, the marker paths and the three
+    # files the community patch owns are all properties of the zip, not of the tree it came from.
+    #
+    # This throws. Everything it catches is silent at install time -- a mod manager that does not
+    # recognise the archive, or a doorstop swapped underneath the community patch -- so the release
+    # stops here instead.
+    $complaints = Test-ArchiveLayout `
+        -Entries (Get-ZipEntryName -ZipPath $zipPath) `
+        -RequiredEntries (Get-RequiredEntry $package) `
+        -ForbiddenLeafName $PatchOwnedFiles
+
+    if ($complaints.Count -gt 0) {
+        throw @"
+$name.zip does not satisfy the archive layout contract:
+
+$(($complaints | ForEach-Object { "    $_" }) -join "`n")
+
+tools\PackArchive.ps1 holds the rules and why each one is there. Refusing to publish this.
+"@
+    }
 
     $hash = (Get-FileHash $zipPath -Algorithm SHA256).Hash.ToLowerInvariant()
     $sha  = "$zipPath.sha256"
@@ -536,17 +594,22 @@ foreach ($d in @($loaderStage, $apiStage)) {
 # that actually contains BepInEx and LGPL requires the notice to travel with the files.
 New-Item -ItemType Directory -Path (Join-Path $loaderStage 'BepInEx') -Force | Out-Null
 Copy-Item (Join-Path $stageDir 'BepInEx\core')  (Join-Path $loaderStage 'BepInEx\core') -Recurse -Force
+# The three text files ride along inside AS2ModLoader\ now, so this one recursive copy brings them
+# and there is no separate list to keep in step with what section 5 writes.
 Copy-Item (Join-Path $stageDir 'AS2ModLoader')  $loaderStage -Recurse -Force
-foreach ($f in @('LICENSE.txt', 'THIRD-PARTY-NOTICES.txt', 'README.txt')) {
-    $src = Join-Path $stageDir $f
-    if (Test-Path $src) { Copy-Item $src $loaderStage -Force }
-}
 
 # API: one DLL. No BepInEx here, so no third-party notice is owed.
 New-Item -ItemType Directory -Path (Join-Path $apiStage 'BepInEx\plugins') -Force | Out-Null
 Copy-Item $modApiDll (Join-Path $apiStage 'BepInEx\plugins') -Force
-if (Test-Path (Join-Path $stageDir 'LICENSE.txt')) {
-    Copy-Item (Join-Path $stageDir 'LICENSE.txt') $apiStage -Force
+
+# Named for the DLL rather than dropped in as LICENSE.txt and README.txt.
+#
+# This package owns no folder of its own -- it is one DLL into a folder BepInEx owns and every other
+# mod shares -- so the file name is what keeps it from colliding with another mod's. BepInEx loads
+# only .dll out of plugins\, so the two text files sit there inert.
+$apiPlugins = Join-Path $apiStage 'BepInEx\plugins'
+if (Test-Path (Join-Path $loaderDocs 'LICENSE.txt')) {
+    Copy-Item (Join-Path $loaderDocs 'LICENSE.txt') (Join-Path $apiPlugins 'AS2.ModApi.LICENSE.txt') -Force
 }
 
 $apiReadme = @"
@@ -571,14 +634,15 @@ DID IT WORK?
     [Info   :Audiosurf 2 Mod API] Mod API ready. Game root: ...
 
 UNINSTALLING
-  Delete BepInEx\plugins\AS2.ModApi.dll. Mods that depend on it will stop loading.
+  Delete BepInEx\plugins\AS2.ModApi.dll, and the two AS2.ModApi.*.txt files beside it. Mods that
+  depend on it will stop loading.
 "@
-Set-Content -Path (Join-Path $apiStage 'README.txt') -Value $apiReadme -Encoding utf8
+Set-Content -Path (Join-Path $apiPlugins 'AS2.ModApi.README.txt') -Value $apiReadme -Encoding utf8
 
 $packages = @(
-    (New-Package $stageDir    "AS2ModFramework-$version"),
-    (New-Package $loaderStage "AS2ModLoader-$version"),
-    (New-Package $apiStage    "AS2ModApi-$version")
+    (New-Package $stageDir    'AS2ModFramework' "AS2ModFramework-$version"),
+    (New-Package $loaderStage 'AS2ModLoader'    "AS2ModLoader-$version"),
+    (New-Package $apiStage    'AS2ModApi'       "AS2ModApi-$version")
 )
 
 # Named for the release notes and the -Publish step below.
@@ -618,9 +682,33 @@ Write-Step "Creating release $tag"
 
 $checksums = ($packages | ForEach-Object { "    $($_.Hash)  $($_.Name)" }) -join "`n"
 
+# What changed goes at the top, above the marker.
+#
+# .github\workflows\publish-to-nexus.yml posts everything above nexus:end as this version's Nexus
+# changelog. Below the marker are install steps and a checksum table, which mean nothing on a mod
+# page -- somebody reading a changelog there is deciding whether to press update.
+if ($ChangeLog) {
+    $changes = (Get-Content $ChangeLog -Raw).TrimEnd()
+}
+else {
+    # Section 4a already worked this out, printed it to the console and threw it away. Four spaces
+    # so Markdown renders it as the machine output it is, which is also the honest way to present
+    # it: it says which signatures moved, not why any of it matters. -ChangeLog is how you say why.
+    $changes = ($verdict.Reasons | ForEach-Object { "    $_" }) -join "`n"
+}
+
+if (-not $changes) { $changes = "    no recorded change; version taken to $version by hand" }
+
 $notes = @"
+## What changed
+
+$changes
+
+<!-- nexus:end -->
+
 **Most people want ``$zipName``** -- extract it into your Audiosurf 2 folder and add the Steam
-launch option. See README.txt in the archive, or the install section of the repo README.
+launch option. See ``AS2ModLoader\README.txt`` in the archive, or the install section of the repo
+README.
 
 Requires the Audiosurf 2 Community Patch. BepInEx $BepInExVersion is bundled; do not install it
 separately.

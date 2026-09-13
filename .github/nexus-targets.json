@@ -1,0 +1,50 @@
+{
+  "_comment": [
+    "Which Nexus file slot each release asset is uploaded to. Read by .github/workflows/publish-to-nexus.yml.",
+    "",
+    "These ids are public on the mod page, so they are checked in rather than hidden in a secret. Only",
+    "the API key is a secret.",
+    "",
+    "mod_id is the COMPOSITE UID, not the number in the page URL. The v3 API composes it as",
+    "(gameId << 32 | modId), and the upload action passes it straight through to POST",
+    "/mods/{id}/changelogs. For this mod that is 9966 << 32 | 1 = 42803644071937. The page URL says",
+    "mods/1, and sending 1 would address a different mod entirely. Find it in the Advanced view, or",
+    "recompose it: gameId = uid >> 32, modId = uid & 0xFFFFFFFF.",
+    "",
+    "file_id is an ordinary file id, not a composite. If an upload fails with a 403 or a 404 on the",
+    "file, check that id space first.",
+    "",
+    "asset is the release asset name without the version and the .zip; the workflow forms",
+    "AS2ModApi-0.2.2.zip from it and the tag.",
+    "",
+    "ONLY LIST SLOTS THAT EXIST. The upload action adds a version to a slot; it cannot create the mod",
+    "page or the slot. A release asset with no entry here is skipped, and the workflow warns by name",
+    "so a missing slot cannot pass unnoticed. To add one: upload that zip to the mod page by hand",
+    "once, read its file id off Manage Files, and add it below.",
+    "",
+    "Exactly one entry sets changelog and update_mod_version. All slots live on one mod page, so two",
+    "entries claiming either would post the changelog twice and set the page version twice.",
+    "",
+    "category is the Nexus file category. main for the combined package, which is what a new person",
+    "should take. The split packages want optional: they are the same bytes arranged differently, and",
+    "listing all three as Main Files invites somebody to install the combined one AND a split one and",
+    "then wonder why Vortex reports every file as conflicting.",
+    "",
+    "primary_mod_manager_download decides which file Vortex fetches from the mod manager download",
+    "button. Leave every entry false to keep whatever the page is already set to."
+  ],
+
+  "game_domain": "audiosurf2",
+  "mod_id": 42803644071937,
+
+  "files": [
+    {
+      "asset": "AS2ModFramework",
+      "file_id": 7854015,
+      "category": "main",
+      "changelog": true,
+      "update_mod_version": true,
+      "primary_mod_manager_download": false
+    }
+  ]
+}

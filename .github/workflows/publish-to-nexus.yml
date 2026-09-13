@@ -1,0 +1,254 @@
+# Uploads a published GitHub release to the Nexus Mods page.
+#
+# Nothing is built here. tools\pack.ps1 runs on a machine that owns Audiosurf 2, because AS2.ModApi
+# compile-references the game's own assemblies and a runner does not have them. That script creates
+# the release, which fires this. So this only moves bytes that already exist: take the assets off
+# the release, hand them to Nexus, and post the changelog.
+#
+# The changelog is the part of the release body above the nexus:end marker. pack.ps1 puts a
+# "What changed" section there, and everything below it -- install steps, the checksum table -- is
+# for somebody reading GitHub, not somebody on a mod page deciding whether to press update.
+#
+# Each job fetches its own asset rather than passing a build artifact between jobs. Three downloads
+# of roughly 600 KB is cheaper than two more third-party actions to pin and keep current, and the
+# release is the one copy of those bytes either way.
+#
+# Re-running this is NOT free, in two ways.
+#
+#   - The upload action adds a new version to a file slot every time it runs, so a re-run after a
+#     partial failure leaves a duplicate version to delete by hand on Nexus.
+#   - POST /mods/{id}/changelogs is additive. The API documents it as appending further text for a
+#     version rather than replacing what is there, so a second run against the same version leaves
+#     the changelog printed twice on the mod page.
+#
+# fail-fast is off so one bad slot does not take the others with it, which keeps both of those down
+# to the slots that actually failed. If a re-run is needed after the changelog already posted, clear
+# the changelog entry on Nexus first, or drop `changelog` from that entry in nexus-targets.json for
+# the re-run.
+
+name: Publish to Nexus Mods
+
+on:
+  release:
+    types: [published]
+
+  # For a re-run after a failure, and for the first run against an existing tag before anybody
+  # trusts the release trigger.
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: The release tag to publish, for example v0.2.2
+        required: true
+        type: string
+
+# Every job reads a release and writes nothing back to the repository. Same reasoning as
+# cold-checks.yml: name the one scope the jobs need, so a step somebody adds later is already
+# holding the smallest token there is.
+permissions:
+  contents: read
+
+jobs:
+  prepare:
+    name: Read the release
+    runs-on: ubuntu-latest
+
+    outputs:
+      tag:       ${{ steps.resolve.outputs.tag }}
+      version:   ${{ steps.resolve.outputs.version }}
+      changelog: ${{ steps.notes.outputs.changelog }}
+      targets:   ${{ steps.targets.outputs.json }}
+
+    steps:
+      # Pinned to a commit SHA, not a tag. A tag is mutable, so an upstream that moves one runs
+      # different code here on the next release and nothing in this file shows it. The trailing
+      # comment gives the version. Same rule as cold-checks.yml and the BepInEx pin in pack.ps1.
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Resolve the tag and the version
+        id: resolve
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
+          EVENT_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          set -euo pipefail
+
+          TAG="${INPUT_TAG:-$EVENT_TAG}"
+          if [ -z "$TAG" ]; then
+            echo "::error::No tag. This ran without a release and without the tag input."
+            exit 1
+          fi
+
+          # The tag carries the v and the Nexus version field does not. pack.ps1 forms the tag as
+          # "v$version" and names the assets without it, so both spellings are needed here.
+          VERSION="${TAG#v}"
+          if ! printf '%s' "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::$TAG does not carry a three-number version. Expected v0.2.2 and got $TAG."
+            exit 1
+          fi
+
+          echo "tag=$TAG"         >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Publishing $TAG as version $VERSION"
+
+      - name: Cut the changelog out of the release body
+        id: notes
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.resolve.outputs.tag }}
+        run: |
+          set -euo pipefail
+
+          BODY="$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json body --jq .body)"
+
+          # Everything above the marker. A body with no marker was written before pack.ps1 started
+          # emitting one, or by hand -- forward the whole thing rather than posting nothing, and say
+          # so, because the install steps and the checksum table read as noise on a mod page.
+          if printf '%s' "$BODY" | grep -qF '<!-- nexus:end -->'; then
+            CHANGELOG="${BODY%%<!-- nexus:end -->*}"
+          else
+            echo "::warning::No nexus:end marker in the body of $TAG. Posting the whole release body."
+            CHANGELOG="$BODY"
+          fi
+
+          if [ -z "${CHANGELOG//[$' \t\r\n']/}" ]; then
+            echo "::error::The changelog for $TAG is empty. Nexus would show nothing for this version."
+            exit 1
+          fi
+
+          # A random delimiter, because the body is arbitrary text and a fixed one appearing inside
+          # it would end the value early and let the rest of the body be read as workflow commands.
+          DELIM="nexus-$(openssl rand -hex 16)"
+          {
+            echo "changelog<<$DELIM"
+            printf '%s\n' "$CHANGELOG"
+            echo "$DELIM"
+          } >> "$GITHUB_OUTPUT"
+
+          echo "Changelog is $(printf '%s' "$CHANGELOG" | wc -c) bytes"
+
+      - name: Build the upload list
+        id: targets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.resolve.outputs.tag }}
+          VERSION: ${{ steps.resolve.outputs.version }}
+        run: |
+          set -euo pipefail
+          CONFIG=.github/nexus-targets.json
+
+          MOD_ID="$(jq -r '.mod_id' "$CONFIG")"
+          if [ "$MOD_ID" = "0" ] || [ "$MOD_ID" = "null" ]; then
+            echo "::error::$CONFIG still has mod_id 0. Fill in the real ids before publishing."
+            exit 1
+          fi
+
+          # A slot left at 0 is the unfilled placeholder, not a slot number. Uploading against it
+          # would either fail obscurely inside the action or write to somebody else's mod.
+          UNSET="$(jq -r '[.files[] | select(.file_id == 0) | .asset] | join(", ")' "$CONFIG")"
+          if [ -n "$UNSET" ]; then
+            echo "::error::$CONFIG has no file_id for: $UNSET. Create the file slots on Nexus first."
+            exit 1
+          fi
+
+          # Exactly one entry owns the changelog and the page version. Two would post the same text
+          # twice on one mod page.
+          for field in changelog update_mod_version; do
+            COUNT="$(jq -r --arg f "$field" '[.files[] | select(.[$f] == true)] | length' "$CONFIG")"
+            if [ "$COUNT" != "1" ]; then
+              echo "::error::$COUNT entries in $CONFIG set $field. Exactly one has to."
+              exit 1
+            fi
+          done
+
+          # category defaults to main when an entry omits it, matching the action's own default, so
+          # an entry written before that field existed keeps behaving the way it did.
+          JSON="$(jq -c --arg v "$VERSION" --argjson mod "$MOD_ID" '
+            [ .files[] | {
+                asset,
+                file_id,
+                mod_id: $mod,
+                filename: "\(.asset)-\($v).zip",
+                category: (.category // "main"),
+                changelog,
+                update_mod_version,
+                primary_mod_manager_download
+            } ]' "$CONFIG")"
+
+          # Every named asset has to be on the release already. A typo in asset, or a package
+          # pack.ps1 stopped emitting, would otherwise reach the upload job as a missing file after
+          # the approval has already been given.
+          gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name' > on-release.txt
+          for f in $(printf '%s' "$JSON" | jq -r '.[].filename'); do
+            if ! grep -qxF "$f" on-release.txt; then
+              echo "::error::$f is named in $CONFIG but is not among the assets on $TAG."
+              exit 1
+            fi
+          done
+
+          # And the other direction, which is a warning rather than an error.
+          #
+          # A slot has to be created by hand before it can be written to, so a release carrying a
+          # package with no slot yet is a real intermediate state, not a mistake. Skipping it
+          # silently is what would be the mistake: the zip is on GitHub, nobody on Nexus can see it,
+          # and nothing said so.
+          while read -r asset; do
+            case "$asset" in
+              *.zip) ;;
+              *) continue ;;
+            esac
+            if ! printf '%s' "$JSON" | jq -e --arg a "$asset" 'any(.[]; .filename == $a)' > /dev/null; then
+              echo "::warning::$asset is on the release but has no file slot in $CONFIG, so it is not going to Nexus."
+            fi
+          done < on-release.txt
+
+          echo "json=$JSON" >> "$GITHUB_OUTPUT"
+          printf '%s' "$JSON" | jq .
+
+  upload:
+    name: ${{ matrix.target.asset }}
+    needs: prepare
+    runs-on: ubuntu-latest
+
+    # The API key lives in an environment rather than loose in repository secrets, so reaching it
+    # takes an approval that a change to this file on its own does not grant. It is the first secret
+    # this repository has, and it can edit a live mod page.
+    environment: nexus
+
+    strategy:
+      # One slot failing must not cancel the others. Every cancelled upload is one more version to
+      # reconcile by hand on the next run.
+      fail-fast: false
+      matrix:
+        target: ${{ fromJSON(needs.prepare.outputs.targets) }}
+
+    steps:
+      - name: Fetch the asset
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+          FILENAME: ${{ matrix.target.filename }}
+        run: |
+          set -euo pipefail
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern "$FILENAME"
+          ls -l "$FILENAME"
+
+      - name: Upload to Nexus Mods
+        uses: Nexus-Mods/upload-action@c96019556046053aa26044b44396cd38929daf23 # v1.0.0-beta.10
+        with:
+          api_key:  ${{ secrets.NEXUS_API_KEY }}
+          mod_id:   ${{ matrix.target.mod_id }}
+          file_id:  ${{ matrix.target.file_id }}
+          filename: ${{ matrix.target.filename }}
+          version:  ${{ needs.prepare.outputs.version }}
+          category: ${{ matrix.target.category }}
+
+          # Only the entry that owns it. The other two slots would post the same text to the same
+          # mod page.
+          changelog: ${{ matrix.target.changelog && needs.prepare.outputs.changelog || '' }}
+          update_mod_version: ${{ matrix.target.update_mod_version }}
+          primary_mod_manager_download: ${{ matrix.target.primary_mod_manager_download }}
+
+          # The previous version moves out of Main Files rather than sitting beside the new one.
+          # Three packages on one page is already enough to read through.
+          archive_existing_version: true
