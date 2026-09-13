@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
@@ -47,6 +47,7 @@ namespace AS2.ModApi.Tests
                 StoreChecks.Run();
                 ConcurrencyChecks.Run();
                 ScrollChecks.Run();
+            UiGeometryChecks.Run();
                 PatchChecks.Run();
             }
             catch (Exception e)
