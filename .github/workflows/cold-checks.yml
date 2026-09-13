@@ -80,3 +80,15 @@ jobs:
       - name: Doorstop config rewrite
         if: '!cancelled()'
         run: dotnet run --project tests/AS2.Bootstrap.Tests
+
+      # The version decision every release is cut from: the semver arithmetic and the path
+      # globs that choose major, minor, patch or none. The only PowerShell this repository
+      # runs in CI, and the only part of tools/ anything checked at all.
+      #
+      # Windows PowerShell rather than pwsh, because that is what a maintainer cutting a
+      # release actually runs the script under, and its switch and -like semantics are the
+      # ones under test.
+      - name: The release version decision
+        if: '!cancelled()'
+        shell: powershell
+        run: .\tests\Check-ReleaseTooling.ps1
