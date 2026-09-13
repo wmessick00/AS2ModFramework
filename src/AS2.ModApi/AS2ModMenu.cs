@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using UnityEngine;
 
 namespace AS2.ModApi
@@ -91,8 +91,12 @@ namespace AS2.ModApi
             // description cannot land on top of the title when the fonts do not scale exactly with
             // the row -- which is what a font size rounded to whole pixels guarantees at some point.
             // Not RowPitch: an entry is a two-line card, not a settings row.
-            float titleH = AS2Ui.Label.lineHeight;
-            float descH = AS2Ui.Dim.lineHeight;
+            // Through LineHeightOf, not off the properties. Header above returns its measured
+            // height whether or not it could draw, so reaching this line proves nothing about the
+            // styles -- and BuildStyles assigns Label before Title and Title before Dim, so a build
+            // that threw partway leaves Header's own guard satisfied and Dim still null.
+            float titleH = AS2Ui.LineHeightOf(AS2Ui.Label, 34f * u);
+            float descH = AS2Ui.LineHeightOf(AS2Ui.Dim, 26f * u);
             float gap = 6f * u;
 
             float rowH = Mathf.Max(108f * u, titleH + gap + descH + 40f * u);
@@ -116,8 +120,13 @@ namespace AS2.ModApi
                 float textW = row.width - 48f * u;
                 float y = row.y + (row.height - blockH) * 0.5f;
 
-                GUI.Label(new Rect(textX, y, textW, titleH), entry.Title, AS2Ui.Label);
-                if (described)
+                // Skipped rather than drawn with a null style, because GUI.Label throws on one.
+                // The row under it is already drawn and already clickable, so a frame of unlabelled
+                // rows is the whole cost of EnsureStyles retrying next frame -- which is what it is
+                // written to do, and what the guards in AS2Ui's own drawing methods assume.
+                if (AS2Ui.Label != null)
+                    GUI.Label(new Rect(textX, y, textW, titleH), entry.Title, AS2Ui.Label);
+                if (described && AS2Ui.Dim != null)
                     GUI.Label(new Rect(textX, y + titleH + gap, textW, descH), entry.Description, AS2Ui.Dim);
             }
 

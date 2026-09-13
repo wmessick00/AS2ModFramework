@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.IO;
 
 namespace AS2.ModApi
@@ -15,13 +16,47 @@ namespace AS2.ModApi
     // path that reads as inside the install actually leads there
     internal static class PathGuard
     {
+        /// <summary>Every character a plain file name may not carry, written out rather than asked for</summary>
+        // #54. This was Path.GetInvalidFileNameChars(), and the separators below were tested by
+        // hand precisely because Mono decides that array's contents by platform -- the reasoning
+        // was right, and it was applied to three characters out of the set
+        // Windows returns about 40. Mono on Linux returns two, NUL and '/', and Audiosurf 2 is
+        // commonly played on Linux through Proton with this framework under it. So a Workshop key
+        // or a third-party data file name carrying '*', '?', '"', '<', '>' or '|' passed there and
+        // failed here: the guard that answers "is this a bare, unambiguous file name" gave two
+        // different answers depending on where the game was running
+        // Written out, it is the same answer everywhere. The check in tests/ asserts this covers
+        // everything the running platform would itself have rejected, so the list cannot fall
+        // behind the array it replaced
+        private static readonly char[] Disallowed = BuildDisallowed();
+
+        private static char[] BuildDisallowed()
+        {
+            // 0 to 31 are the control characters. Win32 refuses them in a file name, and a name
+            // carrying one arrives in a log line or a message box as something unreadable wherever
+            // it does not.
+            var bad = new List<char>();
+            for (int c = 0; c < 32; c++) bad.Add((char)c);
+
+            // The separators and the stream qualifier are here as well as tested by name below, so
+            // this array is the whole answer on its own and a reader does not have to hold both
+            // halves at once. The rest are the wildcards and the redirection characters Win32
+            // reserves.
+            bad.AddRange(new[] { '"', '<', '>', '|', '*', '?', ':', '/', '\\' });
+            return bad.ToArray();
+        }
+
+        /// <summary>The set <see cref="IsPlainFileName"/> refuses, for the check that keeps it honest</summary>
+        // Handed out as a copy. A check that could edit the guard's own array would be checking
+        // whatever it had just written
+        internal static char[] DisallowedCharacters() { return (char[])Disallowed.Clone(); }
+
         /// <summary>Whether a name is a single file name and nothing more</summary>
         // No directory separator, no drive or stream qualifier, not "." or "..", and not a device
-        // The three separators are tested by hand rather than left to GetInvalidFileNameChars,
-        // because Mono decides that array's contents by platform and these are exactly the
-        // characters containment depends on
-        // The array test catches the rest -- control characters, wildcards -- which matter for a
-        // well-formed path and not for escaping one
+        // The three separators are still tested by name, ahead of the array, because they are the
+        // characters containment depends on and a failure on one should read that way
+        // <see cref="Disallowed"/> catches the rest -- control characters, wildcards -- which matter
+        // for a well-formed path rather than for escaping one
         // The dot names need spelling out separately: they contain no invalid character at all
         // Nor do the device names, and those fail worse (see <see cref="IsDeviceName"/>)
         internal static bool IsPlainFileName(string name)
@@ -30,7 +65,7 @@ namespace AS2.ModApi
             if (name == "." || name == "..") return false;
             if (name.IndexOf('/') >= 0 || name.IndexOf('\\') >= 0 || name.IndexOf(':') >= 0) return false;
             if (IsDeviceName(name)) return false;
-            return name.IndexOfAny(Path.GetInvalidFileNameChars()) < 0;
+            return name.IndexOfAny(Disallowed) < 0;
         }
 
         /// <summary>The device names that are a fixed word. The numbered ports are IsPortName's</summary>
@@ -141,5 +176,73 @@ namespace AS2.ModApi
         {
             return c == Path.DirectorySeparatorChar || c == Path.AltDirectorySeparatorChar;
         }
+
+        /// <summary>Opens a file for reading, and only if it really lives inside the root</summary>
+        // #56. LinkedSegment answers about a path. This answers about a file, which is a different
+        // question and the one a caller actually has
+        // The gap it closes: every other guard here proves containment, hands the caller a string,
+        // and the caller opens it a moment later. Proving something about a name at one instant
+        // does not preserve it across the file operation that follows, and a junction on Windows
+        // needs no elevation to create. A Workshop folder mid-download is a folder changing under
+        // the check already -- TargetResolver's own comments say so
+        //
+        // The order is the whole point, and it is the opposite of the obvious one:
+        //
+        //   1. Open first. On Windows a handle held without delete sharing pins the file: it
+        //      cannot be renamed or deleted while this is open, so nothing can be swapped in
+        //      underneath it after this line
+        //   2. Check second, against the path the handle was opened from. A parent component
+        //      swapped to a junction before the open means the open followed it -- and the check
+        //      then sees the junction and this refuses, having read nothing
+        //   3. Read from the returned stream. Never re-derive the path and open it again; that
+        //      puts the window straight back
+        //
+        // Checking first and opening second is the bug, not the fix: it leaves exactly the window
+        // between the two that this exists to remove
+        //
+        // A component swapped to a junction *after* the open makes this refuse a file that was
+        // legitimate. That is the safe direction to be wrong in, and it costs a schema reload
+        //
+        // FileShare.Read, not ReadWrite: sharing the write is sharing the delete, and the delete is
+        // what the pin is for. An author editing the file while the game runs sees one refused read
+        // and the next one works
+        //
+        // Returns null for every refusal and every failure, the same way the guards above do. The
+        // caller cannot act differently on "not there" and "not allowed", and a guard that throws
+        // inside somebody's game is a guard that takes the game down
+        internal static FileStream OpenContained(string fullPath, string rootPrefix)
+        {
+            if (Str.IsBlank(fullPath) || Str.IsBlank(rootPrefix)) return null;
+
+            FileStream stream = null;
+            try
+            {
+                stream = new FileStream(fullPath, FileMode.Open, FileAccess.Read, FileShare.Read);
+
+                string linked = LinkedSegment(fullPath, rootPrefix);
+                if (linked != null)
+                {
+                    stream.Dispose();
+                    ModApiPlugin.Log.LogWarning(
+                        "Refusing to read '" + fullPath + "': '" + linked + "' is a junction or "
+                        + "symbolic link, and this API does not follow one -- it cannot tell where "
+                        + "the link really leads.");
+                    return null;
+                }
+
+                return stream;
+            }
+            catch (Exception e)
+            {
+                if (stream != null) { try { stream.Dispose(); } catch { /* already failing */ } }
+
+                // Absent is the ordinary case and says nothing worth a line in somebody's log.
+                if (!(e is FileNotFoundException) && !(e is DirectoryNotFoundException))
+                    ModApiPlugin.Log.LogWarning("Could not open " + fullPath + ": " + e.Message);
+
+                return null;
+            }
+        }
+
     }
 }
