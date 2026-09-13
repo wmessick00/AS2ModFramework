@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.IO;
 
 namespace AS2.ModApi
@@ -15,13 +16,47 @@ namespace AS2.ModApi
     // path that reads as inside the install actually leads there
     internal static class PathGuard
     {
+        /// <summary>Every character a plain file name may not carry, written out rather than asked for</summary>
+        // #54. This was Path.GetInvalidFileNameChars(), and the separators below were tested by
+        // hand precisely because Mono decides that array's contents by platform -- the reasoning
+        // was right, and it was applied to three characters out of the set
+        // Windows returns about 40. Mono on Linux returns two, NUL and '/', and Audiosurf 2 is
+        // commonly played on Linux through Proton with this framework under it. So a Workshop key
+        // or a third-party data file name carrying '*', '?', '"', '<', '>' or '|' passed there and
+        // failed here: the guard that answers "is this a bare, unambiguous file name" gave two
+        // different answers depending on where the game was running
+        // Written out, it is the same answer everywhere. The check in tests/ asserts this covers
+        // everything the running platform would itself have rejected, so the list cannot fall
+        // behind the array it replaced
+        private static readonly char[] Disallowed = BuildDisallowed();
+
+        private static char[] BuildDisallowed()
+        {
+            // 0 to 31 are the control characters. Win32 refuses them in a file name, and a name
+            // carrying one arrives in a log line or a message box as something unreadable wherever
+            // it does not.
+            var bad = new List<char>();
+            for (int c = 0; c < 32; c++) bad.Add((char)c);
+
+            // The separators and the stream qualifier are here as well as tested by name below, so
+            // this array is the whole answer on its own and a reader does not have to hold both
+            // halves at once. The rest are the wildcards and the redirection characters Win32
+            // reserves.
+            bad.AddRange(new[] { '"', '<', '>', '|', '*', '?', ':', '/', '\\' });
+            return bad.ToArray();
+        }
+
+        /// <summary>The set <see cref="IsPlainFileName"/> refuses, for the check that keeps it honest</summary>
+        // Handed out as a copy. A check that could edit the guard's own array would be checking
+        // whatever it had just written
+        internal static char[] DisallowedCharacters() { return (char[])Disallowed.Clone(); }
+
         /// <summary>Whether a name is a single file name and nothing more</summary>
         // No directory separator, no drive or stream qualifier, not "." or "..", and not a device
-        // The three separators are tested by hand rather than left to GetInvalidFileNameChars,
-        // because Mono decides that array's contents by platform and these are exactly the
-        // characters containment depends on
-        // The array test catches the rest -- control characters, wildcards -- which matter for a
-        // well-formed path and not for escaping one
+        // The three separators are still tested by name, ahead of the array, because they are the
+        // characters containment depends on and a failure on one should read that way
+        // <see cref="Disallowed"/> catches the rest -- control characters, wildcards -- which matter
+        // for a well-formed path rather than for escaping one
         // The dot names need spelling out separately: they contain no invalid character at all
         // Nor do the device names, and those fail worse (see <see cref="IsDeviceName"/>)
         internal static bool IsPlainFileName(string name)
@@ -30,7 +65,7 @@ namespace AS2.ModApi
             if (name == "." || name == "..") return false;
             if (name.IndexOf('/') >= 0 || name.IndexOf('\\') >= 0 || name.IndexOf(':') >= 0) return false;
             if (IsDeviceName(name)) return false;
-            return name.IndexOfAny(Path.GetInvalidFileNameChars()) < 0;
+            return name.IndexOfAny(Disallowed) < 0;
         }
 
         /// <summary>The device names that are a fixed word. The numbered ports are IsPortName's</summary>
