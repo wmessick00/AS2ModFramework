@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Text.RegularExpressions;
@@ -250,6 +250,19 @@ namespace AS2.ModApi
         // The string test is necessary and not sufficient. A key can name a folder spelled inside
         // the install that is a junction elsewhere, which every path operation below would follow
         // (see <see cref="PathGuard.LinkedSegment"/>)
+        //
+        // What this returns is a snapshot, and #56 is about saying so rather than implying
+        // otherwise. Both checks hold at the moment they run. Neither travels with the string:
+        // between this returning and the caller opening anything, a component can become a
+        // junction pointing outside the install, and creating one on Windows needs no
+        // elevation. A Workshop folder still downloading is a folder changing under the check
+        // already -- KeyForFolder says as much a few lines up
+        // No return value of type string can close that, which is why the fix is a different
+        // method rather than more checking here: <see cref="OpenFile"/> proves containment on
+        // a handle it already holds, and a mod reading a per-target file should prefer it
+        // This stays for the callers that genuinely need the folder -- enumerating it,
+        // writing into it -- and they should treat the answer as where something was rather
+        // than as a hold on what it is
         public static string FolderForKey(string key)
         {
             if (Str.IsBlank(key)) return null;
@@ -298,6 +311,66 @@ namespace AS2.ModApi
             try { return File.Exists(Path.Combine(folder, fileName)); }
             catch { return false; }
         }
+
+        /// <summary>Opens a file inside a target's folder, with the containment check and the open as one step</summary>
+        // #56. FolderForKey proves containment and hands back a string. Whatever the caller does
+        // with that string happens later, and the proof does not travel with it: between the two,
+        // a component can become a junction pointing anywhere, and creating one on Windows needs no
+        // elevation. A Workshop folder still downloading is a folder changing under the check
+        // already, which TargetResolver's own comments say
+        //
+        // This is the answer to that for a mod reading a per-skin or per-mode file. There is no
+        // window because there is no second step: the file is opened and then proved, on the handle
+        // already held. See <see cref="PathGuard.OpenContained"/> for why that order and not the
+        // obvious one
+        //
+        // Prefer this to FolderForKey plus a File.ReadAllText. FolderForKey stays, because a mod
+        // that needs to enumerate or to write has to have the folder -- but a path is a snapshot of
+        // where something was, and only a handle is a hold on what it is
+        //
+        // The caller disposes the stream. Returns null when the key or the name is refused, when
+        // the file is not there, and when it is there but does not really live inside the folder
+        public static Stream OpenFile(string key, string fileName)
+        {
+            if (!PathGuard.IsPlainFileName(fileName))
+            {
+                ModApiPlugin.Log.LogWarning("Refusing the file name '" + fileName + "': it must be a plain file name, "
+                                          + "not a path and not a Windows device name.");
+                return null;
+            }
+
+            string folder = FolderForKey(key);
+            if (folder == null) return null;
+
+            try { return PathGuard.OpenContained(Path.Combine(folder, fileName), RootPrefix()); }
+            catch (Exception e)
+            {
+                ModApiPlugin.Log.LogWarning("Could not open '" + fileName + "' under the key '" + key + "': " + e.Message);
+                return null;
+            }
+        }
+
+        /// <summary>The whole text of a file inside a target's folder, or null</summary>
+        // The common case of <see cref="OpenFile"/>, so that reading a schema or a manifest is one
+        // call rather than a using block every mod writes slightly differently
+        public static string ReadFile(string key, string fileName)
+        {
+            Stream stream = OpenFile(key, fileName);
+            if (stream == null) return null;
+
+            try
+            {
+                using (stream)
+                using (var reader = new StreamReader(stream))
+                    return reader.ReadToEnd();
+            }
+            catch (Exception e)
+            {
+                ModApiPlugin.Log.LogWarning("Could not read '" + fileName + "' under the key '" + key + "': " + e.Message);
+                return null;
+            }
+        }
+
 
         /// <summary>Every skin and mode folder that ships <paramref name="fileName"/></summary>
         // Skins first, each group sorted by name
