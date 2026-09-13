@@ -22,8 +22,8 @@ namespace AS2.ModApi
     public static class AS2Ui
     {
         /// <summary>The design resolution everything below was measured against</summary>
-        public const float DesignWidth = 2560f;
-        public const float DesignHeight = 1440f;
+        public const float DesignWidth = AS2UiGeometry.DesignWidth;
+        public const float DesignHeight = AS2UiGeometry.DesignHeight;
 
         // ---- Palette, sampled from the game's settings dialog --------------------------------
 
@@ -56,7 +56,7 @@ namespace AS2.ModApi
         // dialog on screen rather than taller than the window
         public static float Unit
         {
-            get { return Mathf.Min(Screen.width / DesignWidth, Screen.height / DesignHeight); }
+            get { return AS2UiGeometry.Unit(Screen.width, Screen.height); }
         }
 
         /// <summary>Where the game centres its dialog: 1716 x 1216 design units, screen centred</summary>
@@ -65,7 +65,7 @@ namespace AS2.ModApi
             get
             {
                 float u = Unit;
-                float w = 1716f * u, h = 1216f * u;
+                float w = AS2UiGeometry.DialogWidth * u, h = AS2UiGeometry.DialogHeight * u;
                 return new Rect((Screen.width - w) * 0.5f, (Screen.height - h) * 0.5f, w, h);
             }
         }
@@ -98,26 +98,26 @@ namespace AS2.ModApi
         /// <summary>
         /// Margin down each side of the dialog's contents. The game's own rows start here.
         /// </summary>
-        public const float SideMargin = 70f;
+        public const float SideMargin = AS2UiGeometry.SideMargin;
 
         /// <summary>Gap between the top of the dialog and the title</summary>
-        public const float HeaderTop = 44f;
+        public const float HeaderTop = AS2UiGeometry.HeaderTop;
 
         /// <summary>Height of the title line, and of the dim subtitle under it</summary>
-        public const float TitleHeight = 56f;
-        public const float SubtitleHeight = 36f;
+        public const float TitleHeight = AS2UiGeometry.TitleHeight;
+        public const float SubtitleHeight = AS2UiGeometry.SubtitleHeight;
 
         /// <summary>Clear space between the header and whatever the panel puts below it</summary>
-        public const float HeaderGap = 34f;
+        public const float HeaderGap = AS2UiGeometry.HeaderGap;
 
         /// <summary>The button row along the bottom</summary>
         // 60 units tall, top 100 above the dialog's bottom edge
         // Same baseline as the game's own Back/Next/OK, which EntryButtonRect sits on
-        public const float FooterButtonHeight = 60f;
-        public const float FooterButtonBaseline = 100f;
+        public const float FooterButtonHeight = AS2UiGeometry.FooterButtonHeight;
+        public const float FooterButtonBaseline = AS2UiGeometry.FooterButtonBaseline;
 
         /// <summary>Clear space between the body and the button row</summary>
-        public const float FooterGap = 20f;
+        public const float FooterGap = AS2UiGeometry.FooterGap;
 
         /// <summary>
         /// Height to reserve below the body for a plain button row. A panel with more down there --
@@ -125,7 +125,7 @@ namespace AS2.ModApi
         /// </summary>
         public static float FooterHeight
         {
-            get { return (FooterButtonBaseline + FooterGap) * Unit; }
+            get { return AS2UiGeometry.FooterHeight(Unit); }
         }
 
         /// <summary>The whole screen, for the backdrop behind a panel</summary>
@@ -141,7 +141,8 @@ namespace AS2.ModApi
         public static Rect ContentRect(Rect dialog, float y, float height)
         {
             float u = Unit;
-            return new Rect(dialog.x + SideMargin * u, y, Mathf.Max(0f, dialog.width - 2f * SideMargin * u), height);
+            return new Rect(AS2UiGeometry.ContentX(dialog.x, u), y,
+                            AS2UiGeometry.ContentWidth(dialog.width, u), height);
         }
 
         /// <summary>Height a <see cref="Header"/> occupies, trailing gap included</summary>
@@ -149,8 +150,7 @@ namespace AS2.ModApi
         // Pass it straight to <see cref="BodyRect"/>
         public static float HeaderHeight(bool subtitled)
         {
-            float u = Unit;
-            return (HeaderTop + TitleHeight + (subtitled ? SubtitleHeight : 0f) + HeaderGap) * u;
+            return AS2UiGeometry.HeaderHeight(Unit, subtitled);
         }
 
         /// <summary>A panel's title, and a dim second line under it when there is one</summary>
@@ -214,19 +214,19 @@ namespace AS2.ModApi
         // owned its own drifting copy of them.
 
         /// <summary>Right edge of the label column. Labels are right-aligned to it</summary>
-        public const float LabelColumnRight = 814f;
+        public const float LabelColumnRight = AS2UiGeometry.LabelColumnRight;
 
         /// <summary>Left edge of the control column, where a slider or checkbox starts</summary>
-        public const float ControlColumnX = 838f;
+        public const float ControlColumnX = AS2UiGeometry.ControlColumnX;
 
         /// <summary>Width of the control column</summary>
-        public const float ControlColumnWidth = 350f;
+        public const float ControlColumnWidth = AS2UiGeometry.ControlColumnWidth;
 
         /// <summary>Left edge of the value readout, e.g. "100%" or "Ultra"</summary>
-        public const float ValueColumnX = 1206f;
+        public const float ValueColumnX = AS2UiGeometry.ValueColumnX;
 
         /// <summary>Distance from one row's top to the next. The game's rows are 83 apart</summary>
-        public const float RowPitch = 83f;
+        public const float RowPitch = AS2UiGeometry.RowPitch;
 
         /// <summary>Splits a row into the three rects the game's settings dialog uses</summary>
         // Right-aligned label, the control, then the value readout to its right
@@ -237,7 +237,8 @@ namespace AS2.ModApi
             float u = Unit;
             label   = new Rect(row.x, row.y, LabelColumnRight * u, row.height);
             control = new Rect(row.x + ControlColumnX * u, row.y, ControlColumnWidth * u, row.height);
-            value   = new Rect(row.x + ValueColumnX * u, row.y, Mathf.Max(0f, row.width - ValueColumnX * u), row.height);
+            value   = new Rect(row.x + ValueColumnX * u, row.y,
+                               AS2UiGeometry.ValueColumnWidth(row.width, u), row.height);
         }
 
         /// <summary>The n-th row of a list, <see cref="RowPitch"/> apart</summary>
@@ -253,7 +254,7 @@ namespace AS2.ModApi
         /// <summary>Height a list of that many rows needs. The content height for a scroll view</summary>
         public static float RowsHeight(int rows)
         {
-            return Mathf.Max(0, rows) * RowPitch * Unit;
+            return AS2UiGeometry.RowsHeight(Unit, rows);
         }
 
         // ---- Settings dialog state ------------------------------------------------------------
@@ -636,7 +637,7 @@ namespace AS2.ModApi
 
         private static float ValueAt(float mouseX, float trackX, float handleW, float usable, float min, float span)
         {
-            return min + Mathf.Clamp01((mouseX - trackX - handleW * 0.5f) / usable) * span;
+            return AS2UiGeometry.ValueAt(mouseX, trackX, handleW, usable, min, span);
         }
 
         /// <summary>The game's checkbox: a white square with a cross when set</summary>
@@ -1050,7 +1051,7 @@ namespace AS2.ModApi
 
         private static float ScrollAt(float mouseY, float trackY, float size, float travel, float hidden)
         {
-            return Mathf.Clamp01((mouseY - trackY - size * 0.5f) / travel) * hidden;
+            return AS2UiGeometry.ScrollAt(mouseY, trackY, size, travel, hidden);
         }
     }
 }

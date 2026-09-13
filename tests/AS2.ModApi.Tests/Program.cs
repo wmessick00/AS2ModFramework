@@ -47,6 +47,7 @@ namespace AS2.ModApi.Tests
                 StoreChecks.Run();
                 ConcurrencyChecks.Run();
                 ScrollChecks.Run();
+            UiGeometryChecks.Run();
                 PatchChecks.Run();
             }
             catch (Exception e)
