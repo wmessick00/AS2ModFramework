@@ -51,17 +51,24 @@
     script's own $version are one variable, and reading the constant would overwrite the override.
 
 .PARAMETER ChangeLog
-    A text file describing what changed, which becomes the "What changed" section at the top of the
-    release notes. Written for a player, not for a reviewer.
+    A text file whose contents become the "What changed" section at the top of the release notes,
+    overriding the list tools\Get-ChangeList.ps1 assembles from merged pull requests.
 
-    A publish refuses without this or -ChangeLogText. The section is not decoration: the Nexus
-    workflow posts it as that release's changelog, and it is what somebody sees when they are
-    deciding whether to press update. There is no generated fallback, because the one this used to
-    have listed changed file paths and moved signatures -- accurate, and not a changelog.
+    Reach for it when a release needs saying differently from how the pull requests were titled.
+    Most do not.
 
 .PARAMETER ChangeLogText
-    The same thing inline, for a release whose change list is a line or two and does not need a
-    file. Beats -ChangeLog if both are given.
+    The same thing inline, for a change list of a line or two. Beats -ChangeLog if both are given.
+
+    Also the way out when nothing was merged since the last release -- a rebuild against a new
+    community patch, say -- because the assembled list would be empty and a publish refuses on that.
+
+.PARAMETER DryRun
+    With -Publish, stop after deciding the version and the change list, before the first tracked
+    file is written. Prints both.
+
+    This is how you read the changelog before it is on a mod page. Everything the release is going to
+    claim has been decided by this point, and none of it has been committed, pushed or uploaded.
 
 .EXAMPLE
     .\tools\pack.ps1
@@ -80,7 +87,8 @@ param(
     [ValidateSet('major', 'minor', 'patch')][string]$Bump,
     [string]$ReleaseVersion,
     [string]$ChangeLog,
-    [string]$ChangeLogText
+    [string]$ChangeLogText,
+    [switch]$DryRun
 )
 
 $ErrorActionPreference = 'Stop'
@@ -150,28 +158,6 @@ if ($ChangeLog -and -not (Test-Path $ChangeLog)) {
     throw "No change log at: $ChangeLog"
 }
 
-# Refused here rather than at the release step, for the reason Assert-PublishReady runs early: by
-# then the build output has been replaced and a tracked source file rewritten.
-#
-# There is no generated fallback on purpose. This used to fall back to the version decision's own
-# reasons, which produced lines like "patch src/AS2.ModApi/Str.cs" -- true, and not something to
-# show somebody deciding whether to update. A changelog nobody wrote is worse than being made to
-# write one.
-if ($Publish -and -not $ChangeLog -and -not $ChangeLogText) {
-    throw @"
-A publish needs a change list.
-
-It becomes the "What changed" section of the release notes, and the Nexus workflow posts that
-section as this version's changelog. Write it for somebody deciding whether to update.
-
-    .\tools\pack.ps1 -Publish -ChangeLogText "Archives now use forward slashes; older ones were malformed."
-
-or, for more than a line or two:
-
-    .\tools\pack.ps1 -Publish -ChangeLog .\notes-0.2.3.txt
-"@
-}
-
 # Checked up front and by name. The alternative is an MSBuild reference-resolution error that
 # never mentions Audiosurf at all.
 $managedDir = Join-Path $AudiosurfDir 'Audiosurf2_Data\Managed'
@@ -200,10 +186,59 @@ $version = $Matches[1]
 # and every reason that cannot happen is knowable now. Finding out after BepInEx is staged and two
 # assemblies are built is finding out too late.
 $upstream = $null
+$changes  = ''
 if ($Publish) {
     Write-Step 'Checking the repository can publish'
     $upstream = Assert-PublishReady $repoRoot
     Write-Host "    $($upstream.Slug) via $($upstream.Remote)/$($upstream.Branch)"
+
+    # The change list is settled here too, for the same reason and at the same cost. It ends up in
+    # the release notes and, through .github\workflows\publish-to-nexus.yml, on the mod page as this
+    # version's changelog. Discovering it is empty after the bump is pushed is discovering it too
+    # late.
+    #
+    # The previous tag comes from git rather than from the version decision, which has not run yet.
+    # No tag means a first release, and Get-ChangeList reads the whole history for that.
+    Write-Step 'Building the change list'
+
+    if ($ChangeLogText) {
+        $changes = $ChangeLogText.TrimEnd()
+        Write-Host '    from -ChangeLogText'
+    }
+    elseif ($ChangeLog) {
+        $changes = (Get-Content $ChangeLog -Raw).TrimEnd()
+        Write-Host "    from $ChangeLog"
+    }
+    else {
+        $r = Invoke-Native git @('-C', $repoRoot, 'describe', '--tags', '--abbrev=0', '--match', 'v[0-9]*')
+        $fromTag = if ($r.ExitCode -eq 0) { "$($r.Output)".Trim() } else { '' }
+
+        $changes = & (Join-Path $PSScriptRoot 'Get-ChangeList.ps1') `
+            -RepoRoot $repoRoot -FromTag $fromTag -Slug $upstream.Slug
+
+        $since = if ($fromTag) { "since $fromTag" } else { 'over the whole history' }
+        Write-Host "    from the pull requests merged $since"
+    }
+
+    if (-not "$changes".Trim()) {
+        throw @"
+There is nothing to put in the change list.
+
+No pull request has been merged since the last release, and no commit subject survived either. The
+list becomes the "What changed" section of the release notes, and the Nexus workflow posts it as
+this version's changelog, so it cannot be blank.
+
+Name it yourself:
+
+    .\tools\pack.ps1 -Publish -ChangeLogText "Rebuilt against the September community patch."
+
+or, for more than a line or two:
+
+    .\tools\pack.ps1 -Publish -ChangeLog .\notes.txt
+"@
+    }
+
+    foreach ($line in ($changes -split "`n")) { Write-Host "    $line" }
 }
 
 Write-Step "Packing AS2ModFramework $version"
@@ -392,6 +427,26 @@ If the release is worth cutting anyway, name the level yourself:
 }
 
 Write-Host "    verdict $($verdict.Level): $version -> $($verdict.Next)" -ForegroundColor Green
+
+# Everything the release is going to claim is decided by here, and none of it is written yet. The
+# next statement is Set-Version, which rewrites a tracked source file.
+#
+# This exists because the change list ends up on a mod page, where it is read by people rather than
+# by whoever wrote it, and the only previous way to see it was to publish it.
+if ($Publish -and $DryRun) {
+    Write-Host ''
+    Write-Step 'Dry run. Nothing has been written, committed, pushed or uploaded'
+    Write-Host ''
+    Write-Host "  Version    $version -> $($verdict.Next)  ($($verdict.Level))"
+    Write-Host "  Tag        v$($verdict.Next)"
+    Write-Host ''
+    Write-Host '  Changelog, as Nexus would show it:'
+    Write-Host ''
+    foreach ($line in ($changes -split "`n")) { Write-Host "      $line" }
+    Write-Host ''
+    Write-Host '  Run the same command without -DryRun to publish it.'
+    return
+}
 
 # Not every publish bumps. A first release and an already-ahead constant both ship the value that
 # is on disk, so there is nothing to commit in either case and section 7 has to know that.
@@ -713,13 +768,8 @@ $checksums = ($packages | ForEach-Object { "    $($_.Hash)  $($_.Name)" }) -join
 # Below the marker are install steps and a checksum table, which mean nothing on a mod page --
 # somebody reading a changelog there is deciding whether to press update.
 #
-# The preflight refused a publish without one of these, so neither branch can produce nothing.
-if ($ChangeLogText) { $changes = $ChangeLogText.TrimEnd() }
-else                { $changes = (Get-Content $ChangeLog -Raw).TrimEnd() }
-
-if (-not $changes.Trim()) {
-    throw "The change list is empty. It is posted as this version's changelog on Nexus, so it cannot be blank."
-}
+# $changes was settled in section 1, before the build and before the bump was pushed, and refused
+# there if it came out empty.
 
 $notes = @"
 ## What changed
