@@ -152,7 +152,8 @@ The game is the harness. Verifying anything bound to Unity or BepInEx means runn
   work that made its internals legible
 
 [MIT licensed](LICENSE.txt). Distributed alongside BepInEx, which is LGPL-2.1 and redistributed
-unmodified — the release archive carries a `THIRD-PARTY-NOTICES.txt` naming every bundled component.
+unmodified — the release archive carries an `AS2ModLoader\THIRD-PARTY-NOTICES.txt` naming every
+bundled component.
 
 [rel]: https://github.com/wmessick00/AS2ModFramework/releases/latest
 [patch]: https://audiosurf2.info/download/windows

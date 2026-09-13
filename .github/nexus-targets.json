@@ -1,0 +1,50 @@
+{
+  "_comment": [
+    "Which Nexus file slot each release asset is uploaded to. Read by .github/workflows/publish-to-nexus.yml.",
+    "",
+    "These ids are public on the mod page, so they are checked in rather than hidden in a secret. Only",
+    "the API key is a secret. Find them under Manage Files, or by turning on Advanced on the public",
+    "page: the mod id is the number in the page URL, and each file carries its own id.",
+    "",
+    "The upload action adds a new version to a slot that already exists. It cannot create the mod page",
+    "or the slot, so all three have to be uploaded by hand once before any of this runs. A file_id left",
+    "at 0 stops the workflow with a message rather than uploading nowhere.",
+    "",
+    "asset is the release asset's name without the version and the .zip; the workflow forms",
+    "AS2ModApi-0.2.2.zip from it and the tag.",
+    "",
+    "Exactly one entry sets changelog and update_mod_version. All three slots live on one mod page, so",
+    "two entries claiming either would post the same changelog twice and set the page version twice.",
+    "",
+    "primary_mod_manager_download decides which file Vortex fetches when somebody presses the mod",
+    "manager download button on the page. Leave every entry false to keep whatever the page is already",
+    "set to; setting it here overrides that on the next release."
+  ],
+
+  "game_domain": "CONFIRM-THE-NEXUS-DOMAIN",
+  "mod_id": 0,
+
+  "files": [
+    {
+      "asset": "AS2ModFramework",
+      "file_id": 0,
+      "changelog": true,
+      "update_mod_version": true,
+      "primary_mod_manager_download": false
+    },
+    {
+      "asset": "AS2ModLoader",
+      "file_id": 0,
+      "changelog": false,
+      "update_mod_version": false,
+      "primary_mod_manager_download": false
+    },
+    {
+      "asset": "AS2ModApi",
+      "file_id": 0,
+      "changelog": false,
+      "update_mod_version": false,
+      "primary_mod_manager_download": false
+    }
+  ]
+}
