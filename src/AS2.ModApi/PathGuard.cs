@@ -176,5 +176,73 @@ namespace AS2.ModApi
         {
             return c == Path.DirectorySeparatorChar || c == Path.AltDirectorySeparatorChar;
         }
+
+        /// <summary>Opens a file for reading, and only if it really lives inside the root</summary>
+        // #56. LinkedSegment answers about a path. This answers about a file, which is a different
+        // question and the one a caller actually has
+        // The gap it closes: every other guard here proves containment, hands the caller a string,
+        // and the caller opens it a moment later. Proving something about a name at one instant
+        // does not preserve it across the file operation that follows, and a junction on Windows
+        // needs no elevation to create. A Workshop folder mid-download is a folder changing under
+        // the check already -- TargetResolver's own comments say so
+        //
+        // The order is the whole point, and it is the opposite of the obvious one:
+        //
+        //   1. Open first. On Windows a handle held without delete sharing pins the file: it
+        //      cannot be renamed or deleted while this is open, so nothing can be swapped in
+        //      underneath it after this line
+        //   2. Check second, against the path the handle was opened from. A parent component
+        //      swapped to a junction before the open means the open followed it -- and the check
+        //      then sees the junction and this refuses, having read nothing
+        //   3. Read from the returned stream. Never re-derive the path and open it again; that
+        //      puts the window straight back
+        //
+        // Checking first and opening second is the bug, not the fix: it leaves exactly the window
+        // between the two that this exists to remove
+        //
+        // A component swapped to a junction *after* the open makes this refuse a file that was
+        // legitimate. That is the safe direction to be wrong in, and it costs a schema reload
+        //
+        // FileShare.Read, not ReadWrite: sharing the write is sharing the delete, and the delete is
+        // what the pin is for. An author editing the file while the game runs sees one refused read
+        // and the next one works
+        //
+        // Returns null for every refusal and every failure, the same way the guards above do. The
+        // caller cannot act differently on "not there" and "not allowed", and a guard that throws
+        // inside somebody's game is a guard that takes the game down
+        internal static FileStream OpenContained(string fullPath, string rootPrefix)
+        {
+            if (Str.IsBlank(fullPath) || Str.IsBlank(rootPrefix)) return null;
+
+            FileStream stream = null;
+            try
+            {
+                stream = new FileStream(fullPath, FileMode.Open, FileAccess.Read, FileShare.Read);
+
+                string linked = LinkedSegment(fullPath, rootPrefix);
+                if (linked != null)
+                {
+                    stream.Dispose();
+                    ModApiPlugin.Log.LogWarning(
+                        "Refusing to read '" + fullPath + "': '" + linked + "' is a junction or "
+                        + "symbolic link, and this API does not follow one -- it cannot tell where "
+                        + "the link really leads.");
+                    return null;
+                }
+
+                return stream;
+            }
+            catch (Exception e)
+            {
+                if (stream != null) { try { stream.Dispose(); } catch { /* already failing */ } }
+
+                // Absent is the ordinary case and says nothing worth a line in somebody's log.
+                if (!(e is FileNotFoundException) && !(e is DirectoryNotFoundException))
+                    ModApiPlugin.Log.LogWarning("Could not open " + fullPath + ": " + e.Message);
+
+                return null;
+            }
+        }
+
     }
 }

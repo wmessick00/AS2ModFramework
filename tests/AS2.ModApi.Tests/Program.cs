@@ -477,6 +477,71 @@ namespace AS2.ModApi.Tests
             False("Enumerate does not descend through a mode's linked skins folder",
                   keys.Contains("mods/linkedmode/skins/Deep"));
             Same("Enumerate still found exactly the four real fixtures", found.Count.ToString(), "4");
+
+            OpenFileProvesContainmentOnTheHandle();
+        }
+
+
+        // ---- Regression: issue #56 -------------------------------------------------------------
+
+        /// <summary>
+        /// OpenFile is the containment check and the open as one step, so there is no window
+        /// between them for a component to become a junction in.
+        ///
+        /// Runs inside the link fixture above, because a junction is the only way to show the
+        /// difference: FolderForKey and OpenFile both refuse one, and the point of the second is
+        /// not that it refuses more but that what it returns is a handle on the file it proved
+        /// rather than a string somebody opens later.
+        /// </summary>
+        private static void OpenFileProvesContainmentOnTheHandle()
+        {
+            Same("ReadFile reads a file that really is inside the folder",
+                 TargetResolver.ReadFile("skins/Plain", Schema), "-- fixture");
+
+            ModApiPlugin.Log.Clear();
+            Null("ReadFile refuses a file inside a linked folder",
+                 TargetResolver.ReadFile("skins/Linked", Schema));
+            True("and says the folder was a link",
+                 ModApiPlugin.Log.Mentions("junction or symbolic link"));
+
+            Null("ReadFile refuses a file reached through a link on the way",
+                 TargetResolver.ReadFile("skins/Linked/Deep", Schema));
+
+            ModApiPlugin.Log.Clear();
+            Null("ReadFile refuses a name that is a path rather than a file name",
+                 TargetResolver.ReadFile("skins/Plain", "../secrets.json"));
+            True("and says it refused the name", ModApiPlugin.Log.Mentions("Refusing the file name"));
+
+            Null("ReadFile is null for a file that is not there",
+                 TargetResolver.ReadFile("skins/Plain", "absent.json"));
+
+            // The handle is the point. A caller holding this is holding the file, not a path that
+            // described it a moment ago -- so the read below cannot be pointed anywhere else.
+            using (Stream stream = TargetResolver.OpenFile("skins/Plain", Schema))
+            {
+                True("OpenFile hands back a readable stream", stream != null && stream.CanRead);
+                if (stream != null)
+                {
+                    using (var reader = new StreamReader(stream))
+                        Same("and the stream reads the file it proved", reader.ReadToEnd(), "-- fixture");
+                }
+            }
+
+            // The pin: while that handle is open the file cannot be renamed out from under it, which
+            // is what stops anything being swapped in between the check and the read.
+            using (Stream held = TargetResolver.OpenFile("skins/Plain", Schema))
+            {
+                True("OpenFile opened the file to pin it", held != null);
+
+                bool renamed = true;
+                try { File.Move(Path.Combine(Abs("skins/Plain"), Schema), Path.Combine(Abs("skins/Plain"), "moved.json")); }
+                catch { renamed = false; }
+
+                False("and a held file cannot be renamed away underneath the read", renamed);
+
+                if (renamed)
+                    File.Move(Path.Combine(Abs("skins/Plain"), "moved.json"), Path.Combine(Abs("skins/Plain"), Schema));
+            }
         }
 
         // ---- Regression: issue #33 -------------------------------------------------------------
