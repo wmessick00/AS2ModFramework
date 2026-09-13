@@ -210,6 +210,99 @@ Same 'blank lines in the diff are not files'      (Verdict @('', $null, '')) 'no
 Same 'a failed diff is not the same as an empty one' (Verdict @('src/x.cs') 1) ''
 True 'and it says the rules were skipped' (@($reasons | Where-Object { $_ -like '*path rules were skipped*' }).Count -eq 1)
 
+# ---- The change list ----------------------------------------------------------------------------
+#
+# Lifted the same way, and for the same reason: Get-ChangeList.ps1 has a param block and ends by
+# returning an answer, so dot-sourcing it would run a release's worth of git and gh.
+
+$changeListScript = Join-Path $repoRoot 'tools\Get-ChangeList.ps1'
+if (-not (Test-Path $changeListScript)) { throw "Not found: $changeListScript" }
+
+$clErrors = $null
+$clAst = [System.Management.Automation.Language.Parser]::ParseFile($changeListScript, [ref]$null, [ref]$clErrors)
+if ($clErrors -and $clErrors.Count -gt 0) {
+    throw "tools\Get-ChangeList.ps1 does not parse: $($clErrors[0].Message)"
+}
+
+$clWanted = @('Get-MergedPullRequestNumber', 'Select-ChangeSubject', 'Format-ChangeList')
+$clFound = @{}
+foreach ($fn in $clAst.FindAll({ $args[0] -is [System.Management.Automation.Language.FunctionDefinitionAst] }, $true)) {
+    if ($clWanted -contains $fn.Name) { $clFound[$fn.Name] = $fn.Extent.Text }
+}
+foreach ($name in $clWanted) {
+    if (-not $clFound.ContainsKey($name)) {
+        throw "Get-ChangeList.ps1 no longer defines $name. If it was renamed, rename it here too."
+    }
+    Invoke-Expression $clFound[$name]
+}
+
+Write-Output ''
+Write-Output 'Reading pull request numbers out of the merge log'
+
+Same 'a merge commit names its pull request' `
+     (Get-MergedPullRequestNumber @('Merge pull request #68 from wmessick00/some-branch'))[0] 68
+
+# This repository produces a lot of these, and every one of them would otherwise become a bullet
+# saying nothing.
+Same 'a branch catching up with main is not a change' `
+     (Get-MergedPullRequestNumber @('Merge main into check-the-script')).Count 0
+
+Same 'an octopus or a hand-written merge is skipped too' `
+     (Get-MergedPullRequestNumber @("Merge branch 'main' of github.com:owner/repo")).Count 0
+
+Same 'several merges come back in order' `
+     ((Get-MergedPullRequestNumber @(
+        'Merge pull request #69 from a/b',
+        'Merge main into b',
+        'Merge pull request #68 from a/c')) -join ',') '69,68'
+
+# A branch merged into main twice, or a pull request reopened, should not be listed twice.
+Same 'the same pull request is listed once' `
+     (Get-MergedPullRequestNumber @('Merge pull request #68 from a/b', 'Merge pull request #68 from a/b')).Count 1
+
+Same 'nothing merged is no numbers' (Get-MergedPullRequestNumber @()).Count 0
+Same 'a null line does not throw' (Get-MergedPullRequestNumber @($null, 'Merge pull request #7 from a/b')).Count 1
+
+# The number has to be bounded by a word break. "#68x" is not pull request 68.
+Same 'a number has to end where it should' (Get-MergedPullRequestNumber @('Merge pull request #68x from a/b')).Count 0
+
+Write-Output ''
+Write-Output 'Falling back to commit subjects'
+
+Same 'an ordinary subject is kept' `
+     (Select-ChangeSubject @('Write archives a mod manager can read'))[0] 'Write archives a mod manager can read'
+
+# Save-VersionBump writes this one. It is the release, not something in it.
+Same 'the version bump commit is dropped' (Select-ChangeSubject @('Take the version to 0.2.3')).Count 0
+Same 'but a subject that merely mentions a version is kept' `
+     (Select-ChangeSubject @('Take the version to 0.2.3 out of the log line')).Count 1
+
+Same 'merge commits are dropped here as well' `
+     (Select-ChangeSubject @('Merge pull request #68 from a/b', 'Merge main into b')).Count 0
+
+Same 'blank subjects are dropped' (Select-ChangeSubject @('', '   ', $null)).Count 0
+Same 'a repeated subject is listed once' `
+     (Select-ChangeSubject @('Fix the thing', 'Fix the thing')).Count 1
+
+Write-Output ''
+Write-Output 'Formatting the list'
+
+Same 'a title becomes a bullet' (Format-ChangeList @('Write archives a mod manager can read')) `
+     '- Write archives a mod manager can read'
+
+# The titles in this repository do not carry one, and a changelog of fragments should not either.
+Same 'a terminal period is trimmed' (Format-ChangeList @('Fix the thing.')) '- Fix the thing'
+Same 'but an ellipsis is not special-cased into nonsense' (Format-ChangeList @('Fix the thing...')) '- Fix the thing'
+
+Same 'several titles are one list' (Format-ChangeList @('First thing', 'Second thing')) `
+     "- First thing`n- Second thing"
+
+Same 'nothing in is nothing out' (Format-ChangeList @()) ''
+Same 'blank titles contribute nothing' (Format-ChangeList @('', '   ')) ''
+
+# The empty case is what pack.ps1 refuses a publish on, so it has to be empty rather than "- ".
+True 'an empty list is falsy, which is what the publish guard tests' (-not (Format-ChangeList @()))
+
 # ---- Summary -----------------------------------------------------------------------------------
 
 Write-Output ''
