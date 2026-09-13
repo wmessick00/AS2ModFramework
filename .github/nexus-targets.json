@@ -25,6 +25,11 @@
     "Exactly one entry sets changelog and update_mod_version. All slots live on one mod page, so two",
     "entries claiming either would post the changelog twice and set the page version twice.",
     "",
+    "category is the Nexus file category. main for the combined package, which is what a new person",
+    "should take. The split packages want optional: they are the same bytes arranged differently, and",
+    "listing all three as Main Files invites somebody to install the combined one AND a split one and",
+    "then wonder why Vortex reports every file as conflicting.",
+    "",
     "primary_mod_manager_download decides which file Vortex fetches from the mod manager download",
     "button. Leave every entry false to keep whatever the page is already set to."
   ],
@@ -36,6 +41,7 @@
     {
       "asset": "AS2ModFramework",
       "file_id": 7854015,
+      "category": "main",
       "changelog": true,
       "update_mod_version": true,
       "primary_mod_manager_download": false

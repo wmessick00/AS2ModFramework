@@ -161,12 +161,15 @@ jobs:
             fi
           done
 
+          # category defaults to main when an entry omits it, matching the action's own default, so
+          # an entry written before that field existed keeps behaving the way it did.
           JSON="$(jq -c --arg v "$VERSION" --argjson mod "$MOD_ID" '
             [ .files[] | {
                 asset,
                 file_id,
                 mod_id: $mod,
                 filename: "\(.asset)-\($v).zip",
+                category: (.category // "main"),
                 changelog,
                 update_mod_version,
                 primary_mod_manager_download
@@ -238,6 +241,7 @@ jobs:
           file_id:  ${{ matrix.target.file_id }}
           filename: ${{ matrix.target.filename }}
           version:  ${{ needs.prepare.outputs.version }}
+          category: ${{ matrix.target.category }}
 
           # Only the entry that owns it. The other two slots would post the same text to the same
           # mod page.
