@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
@@ -19,6 +19,56 @@ namespace AS2.ModApi
         /// <summary>How many quarantined copies of one file to keep before the oldest is dropped</summary>
         private const int MaxQuarantined = 5;
 
+        /// <summary>Guards <see cref="Padlocks"/>, and nothing else</summary>
+        private static readonly object Gate = new object();
+
+        /// <summary>One padlock per file this process has touched, held for the life of it</summary>
+        // #59. Every other piece of shared mutable state here is guarded -- ModMenuRegistry (#16),
+        // MessengerBridge.Claim (#46), AS2GameEvents' add and remove (#26) -- and this was not,
+        // though it is the one holding what a player would actually miss
+        // The temp and backup names are derived from the path, so two threads writing one path
+        // write one .tmp. The loser gets a sharing violation; the winner's swap consumes the file
+        // the loser still means to swap, and the fallback then moves the correctly-written file
+        // aside, fails on a temp file that is gone, puts it back, and reports a failed write for
+        // data that is on disk. The racing check in tests/ saw that on every round, and saw the
+        // file left holding bytes no caller ever wrote on a third of them
+        // A padlock for each path rather than one for the store: two mods saving at once is
+        // ordinary and shares nothing, and one lock over all of them would serialise a slow write
+        // on a network share in front of every other mod's
+        //
+        // Per path, and per process. Two copies of the game running out of one folder still race,
+        // and no lock reachable from here can answer that -- it would need the filesystem's
+        //
+        // Nothing is ever removed. An entry is one small object against a path string, the paths
+        // are data file names rather than anything a player can multiply, and counting entries
+        // back out again would put a second race where this one was
+        private static readonly Dictionary<string, object> Padlocks =
+            new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>The padlock every operation on one file takes, the same one for every caller</summary>
+        // Keyed on the full path, because two callers naming one file differently -- a relative
+        // path, a doubled separator, the other casing -- must not each get their own
+        // GetFullPath throws on a path Win32 will not parse. The raw string is the honest fallback:
+        // it still gives identical spellings one padlock, and a path that malformed is about to
+        // fail the write anyway
+        private static object PadlockFor(string path)
+        {
+            string key;
+            try { key = Path.GetFullPath(path); }
+            catch { key = path; }
+
+            lock (Gate)
+            {
+                object padlock;
+                if (!Padlocks.TryGetValue(key, out padlock))
+                {
+                    padlock = new object();
+                    Padlocks[key] = padlock;
+                }
+                return padlock;
+            }
+        }
+
         /// <summary>Reads a file, or returns null when it is not there</summary>
         // Absent and unreadable are both null on purpose
         // A mod's first run has no file, and a mod that has to tell the two apart is a mod about to
@@ -26,10 +76,20 @@ namespace AS2.ModApi
         // Treat null as "start empty". Never as "the player has no data, so overwrite"
         public static string Read(string path)
         {
+            if (Str.IsBlank(path)) return null;
+
             try
             {
-                if (Str.IsBlank(path) || !File.Exists(path)) return null;
-                return File.ReadAllText(path);
+                // Under the padlock: File.Replace unlinks and relinks the name, and a read landing
+                // in that window comes back a sharing violation -- which this reports as null, and
+                // null means "start empty" to every caller. Between processes that is ordinary and
+                // harmless. Inside one, it is a read of the player's data answering "there is none"
+                // while another thread of the same game is midway through saving it.
+                lock (PadlockFor(path))
+                {
+                    if (!File.Exists(path)) return null;
+                    return File.ReadAllText(path);
+                }
             }
             catch (Exception e)
             {
@@ -56,30 +116,12 @@ namespace AS2.ModApi
 
             try
             {
-                string directory = Path.GetDirectoryName(path);
-                if (!Str.IsBlank(directory) && !Directory.Exists(directory)) Directory.CreateDirectory(directory);
-
-                File.WriteAllText(temp, contents ?? string.Empty);
-
-                if (!File.Exists(path))
+                // The temp write and the swap are one operation or they are nothing: both names
+                // above are derived from the path, so a second thread on the same path is writing
+                // the same .tmp. See PadlockFor.
+                lock (PadlockFor(path))
                 {
-                    // Nothing to replace, so the rename is the whole operation and is already atomic.
-                    File.Move(temp, path);
-                    return true;
-                }
-
-                try
-                {
-                    File.Replace(temp, path, previous, true);
-                    return true;
-                }
-                catch (Exception replaceFailed)
-                {
-                    ModApiPlugin.Log.LogWarning(
-                        "Atomic replace of " + path + " failed, falling back to a rename: "
-                        + replaceFailed.Message);
-
-                    return RenameIntoPlace(path, temp, previous);
+                    return WriteLocked(path, temp, previous, contents);
                 }
             }
             catch (Exception e)
@@ -87,6 +129,38 @@ namespace AS2.ModApi
                 ModApiPlugin.Log.LogError("Could not write " + path + ": " + e);
                 try { if (File.Exists(temp)) File.Delete(temp); } catch { /* nothing left to try */ }
                 return false;
+            }
+        }
+
+        /// <summary>The write itself, with the path's padlock already held</summary>
+        // Split out so the lock is one statement rather than a brace around the whole body, and so
+        // the failure path above stays the single place a failed write is reported
+        private static bool WriteLocked(string path, string temp, string previous, string contents)
+        {
+            string directory = Path.GetDirectoryName(path);
+            if (!Str.IsBlank(directory) && !Directory.Exists(directory)) Directory.CreateDirectory(directory);
+
+            File.WriteAllText(temp, contents ?? string.Empty);
+
+            if (!File.Exists(path))
+            {
+                // Nothing to replace, so the rename is the whole operation and is already atomic.
+                File.Move(temp, path);
+                return true;
+            }
+
+            try
+            {
+                File.Replace(temp, path, previous, true);
+                return true;
+            }
+            catch (Exception replaceFailed)
+            {
+                ModApiPlugin.Log.LogWarning(
+                    "Atomic replace of " + path + " failed, falling back to a rename: "
+                    + replaceFailed.Message);
+
+                return RenameIntoPlace(path, temp, previous);
             }
         }
 
@@ -200,19 +274,26 @@ namespace AS2.ModApi
         {
             try
             {
-                if (Str.IsBlank(path) || !File.Exists(path)) return null;
+                if (Str.IsBlank(path)) return null;
 
-                string stamp = DateTime.UtcNow.ToString("yyyyMMdd-HHmmss-fffffff", CultureInfo.InvariantCulture);
-                string destination = path + "." + stamp + ".bad";
-
-                // Two failures inside the same tenth of a microsecond are not going to happen, but a
-                // collision must not throw over the file it was trying to save. The suffix keeps the
-                // same width so it cannot disturb the ordering above.
-                int suffix = 1;
-                while (File.Exists(destination))
+                // The same padlock the write takes. This renames the very file WriteAtomic tests
+                // for and then swaps over, so a quarantine landing inside a write turns that swap
+                // into a create -- and the copy set aside is the one the write was replacing.
+                lock (PadlockFor(path))
                 {
-                    destination = path + "." + stamp + suffix.ToString("D2", CultureInfo.InvariantCulture) + ".bad";
-                    suffix++;
+                    if (!File.Exists(path)) return null;
+
+                    string stamp = DateTime.UtcNow.ToString("yyyyMMdd-HHmmss-fffffff", CultureInfo.InvariantCulture);
+                    string destination = path + "." + stamp + ".bad";
+
+                    // Two failures inside the same tenth of a microsecond are not going to happen, but a
+                    // collision must not throw over the file it was trying to save. The suffix keeps the
+                    // same width so it cannot disturb the ordering above.
+                    int suffix = 1;
+                    while (File.Exists(destination))
+                    {
+                        destination = path + "." + stamp + suffix.ToString("D2", CultureInfo.InvariantCulture) + ".bad";
+                        suffix++;
                 }
 
                 File.Move(path, destination);
@@ -220,6 +301,7 @@ namespace AS2.ModApi
 
                 TrimQuarantined(path);
                 return destination;
+                }
             }
             catch (Exception e)
             {

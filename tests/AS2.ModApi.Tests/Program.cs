@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
@@ -47,6 +47,7 @@ namespace AS2.ModApi.Tests
                 StoreChecks.Run();
                 ConcurrencyChecks.Run();
                 ScrollChecks.Run();
+            UiGeometryChecks.Run();
                 PatchChecks.Run();
             }
             catch (Exception e)
@@ -220,6 +221,75 @@ namespace AS2.ModApi.Tests
             True("Enumerate says why it refused", ModApiPlugin.Log.Mentions("Refusing"));
 
             DeviceNamesAreRefused();
+            WildcardsAreRefusedWhateverThePlatformThinks();
+        }
+
+
+        // ---- Regression: issue #54 -------------------------------------------------------------
+
+        /// <summary>
+        /// The disallowed set is written out in PathGuard rather than asked of the platform, and
+        /// these two checks are what keep that honest.
+        ///
+        /// The first is the contract: a name carrying a wildcard, a redirection character or a
+        /// control character is not a bare file name and is refused. On Windows it passed before
+        /// the fix too, because GetInvalidFileNameChars() returns all of these here -- it is the
+        /// platform this suite runs on that makes the fix look like it changed nothing.
+        ///
+        /// The second is the one that can fail. It asserts the hand-written list still covers
+        /// everything the running platform would have rejected on its own, so a list that falls
+        /// behind is caught here rather than by a player. On Windows that compares against the full
+        /// set of about forty, which is the only place the list can be shown to be complete.
+        /// </summary>
+        private static void WildcardsAreRefusedWhateverThePlatformThinks()
+        {
+            var refused = new List<string>
+            {
+                "wild*card.json", "who?.json", "say\"quote\".json",
+                "less<than.json", "more>than.json", "pipe|it.json"
+            };
+
+            // Built rather than written, because a control character in a source literal is a
+            // character the next reader cannot see.
+            refused.Add("bell" + (char)7 + ".json");
+            refused.Add("tab" + (char)9 + "stop.json");
+
+            foreach (string bad in refused)
+            {
+                ModApiPlugin.Log.Clear();
+                False("HasFile refuses '" + Readable(bad) + "', whatever this platform calls legal",
+                      TargetResolver.HasFile("skins/Plain", bad));
+
+                // False on its own proves nothing here: a name nobody created is missing as
+                // well as refused, and both answer false. The log line is what says which.
+                True("and says it refused the name rather than simply not finding it",
+                     ModApiPlugin.Log.Mentions("Refusing the file name"));
+            }
+
+            // The check with teeth. Mono returns two characters on Linux and about forty on
+            // Windows, so on this runner the comparison is against the rich set -- and a
+            // hand-written list is only ever as good as what it is compared with.
+            char[] ours = PathGuard.DisallowedCharacters();
+            char[] platform = Path.GetInvalidFileNameChars();
+
+            var missing = new List<char>();
+            foreach (char c in platform)
+                if (Array.IndexOf(ours, c) < 0) missing.Add(c);
+
+            True("PathGuard's own list covers every character this platform calls invalid ("
+                 + platform.Length + " checked, " + missing.Count + " missing)", missing.Count == 0);
+        }
+
+        /// <summary>A name as it should read in a failure message, with its control codes visible</summary>
+        private static string Readable(string name)
+        {
+            var sb = new System.Text.StringBuilder();
+            foreach (char c in name)
+            {
+                if (c < ' ') sb.Append("\\x").Append(((int)c).ToString("X2"));
+                else sb.Append(c);
+            }
+            return sb.ToString();
         }
 
         // ---- Regression: issue #15 -------------------------------------------------------------
@@ -408,6 +478,71 @@ namespace AS2.ModApi.Tests
             False("Enumerate does not descend through a mode's linked skins folder",
                   keys.Contains("mods/linkedmode/skins/Deep"));
             Same("Enumerate still found exactly the four real fixtures", found.Count.ToString(), "4");
+
+            OpenFileProvesContainmentOnTheHandle();
+        }
+
+
+        // ---- Regression: issue #56 -------------------------------------------------------------
+
+        /// <summary>
+        /// OpenFile is the containment check and the open as one step, so there is no window
+        /// between them for a component to become a junction in.
+        ///
+        /// Runs inside the link fixture above, because a junction is the only way to show the
+        /// difference: FolderForKey and OpenFile both refuse one, and the point of the second is
+        /// not that it refuses more but that what it returns is a handle on the file it proved
+        /// rather than a string somebody opens later.
+        /// </summary>
+        private static void OpenFileProvesContainmentOnTheHandle()
+        {
+            Same("ReadFile reads a file that really is inside the folder",
+                 TargetResolver.ReadFile("skins/Plain", Schema), "-- fixture");
+
+            ModApiPlugin.Log.Clear();
+            Null("ReadFile refuses a file inside a linked folder",
+                 TargetResolver.ReadFile("skins/Linked", Schema));
+            True("and says the folder was a link",
+                 ModApiPlugin.Log.Mentions("junction or symbolic link"));
+
+            Null("ReadFile refuses a file reached through a link on the way",
+                 TargetResolver.ReadFile("skins/Linked/Deep", Schema));
+
+            ModApiPlugin.Log.Clear();
+            Null("ReadFile refuses a name that is a path rather than a file name",
+                 TargetResolver.ReadFile("skins/Plain", "../secrets.json"));
+            True("and says it refused the name", ModApiPlugin.Log.Mentions("Refusing the file name"));
+
+            Null("ReadFile is null for a file that is not there",
+                 TargetResolver.ReadFile("skins/Plain", "absent.json"));
+
+            // The handle is the point. A caller holding this is holding the file, not a path that
+            // described it a moment ago -- so the read below cannot be pointed anywhere else.
+            using (Stream stream = TargetResolver.OpenFile("skins/Plain", Schema))
+            {
+                True("OpenFile hands back a readable stream", stream != null && stream.CanRead);
+                if (stream != null)
+                {
+                    using (var reader = new StreamReader(stream))
+                        Same("and the stream reads the file it proved", reader.ReadToEnd(), "-- fixture");
+                }
+            }
+
+            // The pin: while that handle is open the file cannot be renamed out from under it, which
+            // is what stops anything being swapped in between the check and the read.
+            using (Stream held = TargetResolver.OpenFile("skins/Plain", Schema))
+            {
+                True("OpenFile opened the file to pin it", held != null);
+
+                bool renamed = true;
+                try { File.Move(Path.Combine(Abs("skins/Plain"), Schema), Path.Combine(Abs("skins/Plain"), "moved.json")); }
+                catch { renamed = false; }
+
+                False("and a held file cannot be renamed away underneath the read", renamed);
+
+                if (renamed)
+                    File.Move(Path.Combine(Abs("skins/Plain"), "moved.json"), Path.Combine(Abs("skins/Plain"), Schema));
+            }
         }
 
         // ---- Regression: issue #33 -------------------------------------------------------------

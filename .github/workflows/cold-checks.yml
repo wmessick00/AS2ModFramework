@@ -13,10 +13,15 @@
 #
 #   1. The check projects target net48, which is .NET Framework and does not exist on Linux.
 #   2. These checks encode Windows path semantics, because the game is Windows-only.
-#      Path.GetInvalidFileNameChars() returns 2 characters on Linux and about 40 on Windows, so
-#      "wild*card.json" is a legal file name there and PathGuard would accept it -- failing a check
-#      that is asserting correct behaviour. The traversal cases lean on Windows drive parsing, and
-#      the doorstop config checks assert CRLF line ends.
+#      The traversal cases lean on Windows drive parsing, and the doorstop config checks assert
+#      CRLF line ends.
+#      PathGuard used to be the sharpest example: it asked Path.GetInvalidFileNameChars(), which
+#      returns 2 characters on Linux and about 40 on Windows, so "wild*card.json" was a legal file
+#      name there and the guard accepted it. That is fixed -- #54, the set is written out now and
+#      the same everywhere -- but the runner still has to be Windows, for the opposite reason:
+#      the check that keeps the hand-written set honest compares it against whatever this platform
+#      calls invalid, and only Windows brings the full 40 to compare against. On ubuntu it would
+#      compare against 2 and pass whatever the set said.
 #      Moving to ubuntu-latest to save runner minutes would not make the suite cheaper. It would
 #      make it wrong.
 #

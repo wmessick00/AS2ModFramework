@@ -1,4 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <!--
     Cold checks for the path and key logic in AS2.ModApi. Anything that does not truly need the game
@@ -54,6 +54,13 @@
       own file. Same split as Str and SelectorKind above. See #38 and ScrollChecks.cs.
     -->
     <Compile Include="..\..\src\AS2.ModApi\ScrollTurns.cs"    Link="Production\ScrollTurns.cs" />
+
+    <!--
+      The numbers the Mod Menu is laid out from. AS2Ui is IMGUI end to end and can never
+      compile here, so the arithmetic inside its rects sits in its own file. Same split
+      as ScrollTurns above, and for the same reason. See #55 and UiGeometryChecks.cs.
+    -->
+    <Compile Include="..\..\src\AS2.ModApi\AS2UiGeometry.cs" Link="Production\AS2UiGeometry.cs" />
 
     <!--
       The two concurrency fixes that shipped as bugs first, and the patch registration behind them.

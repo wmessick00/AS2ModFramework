@@ -1,5 +1,6 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Reflection;
 using System.Threading;
 using UnityEngine;
@@ -45,6 +46,8 @@ namespace AS2.ModApi.Tests
             NoSubscriptionIsLostWhenModsSubscribeAtOnce();
             RaisingAGameEventWhileSubscribersChurnDoesNotThrow();
             AGameHandlerThatRemovesItselfStillGetsOneMoreCall();
+
+            WritingOnePathFromManyThreadsNeverReportsAFalseFailure();
         }
 
         // ---- Regression: issue #16 ---------------------------------------------------------------
@@ -440,6 +443,97 @@ namespace AS2.ModApi.Tests
             True("AS2GameEvents: and is gone from the next one", calls == 1);
 
             AS2GameEvents.SkinChanged -= first;
+        }
+
+        // ---- Cover without a bug behind it: AS2Store -----------------------------------------------
+        //
+        // #59. Every other piece of shared mutable state in this framework is guarded and has a
+        // check above. AS2Store was the one that had neither, and it is the one holding the thing
+        // the player would actually miss
+        // WriteAtomic writes a sibling .tmp whose name comes from the path, so two threads writing
+        // one path write one temp file. The loser of that collision gets a sharing violation; the
+        // winner's swap consumes the file the other still means to swap
+        // The fallback then moves the correctly-written file aside to .bak, fails on the temp file
+        // that is no longer there, puts it back, and reports a failed write for data that is on
+        // disk -- a mod told its save was lost when it was not, which is the one answer worse than
+        // either the truth or nothing
+        // Mods write from Awake, right up until one writes from a web callback. ModMenuRegistry's
+        // own comment says that is ordinary, and nothing stopped it here
+
+        private static void WritingOnePathFromManyThreadsNeverReportsAFalseFailure()
+        {
+            string dir = Path.Combine(Path.GetTempPath(),
+                                      "as2-store-race-" + Guid.NewGuid().ToString("N").Substring(0, 8));
+            Directory.CreateDirectory(dir);
+
+            try
+            {
+                const int racers = 8;
+                string path = Path.Combine(dir, "shared.json");
+
+                var written = new List<string>();
+                for (int i = 0; i < racers; i++) written.Add("contents from racer " + i);
+
+                int rounds = 0;
+                int roundsThatReportedFailure = 0;
+                int roundsThatLostTheContents = 0;
+                int roundsThatLeftALeftover = 0;
+                Exception writeFailure = null;
+                object sync = new object();
+
+                DateTime until = DateTime.UtcNow + Duration;
+                while (DateTime.UtcNow < until)
+                {
+                    // Every round starts with the file already there. The racy path is the swap over
+                    // an existing file; without one, every thread takes the File.Move fast path and
+                    // the round proves nothing.
+                    AS2Store.WriteAtomic(path, "what was there before");
+
+                    bool everyWriteSucceeded = true;
+
+                    RunTogether(racers, delegate (int me)
+                    {
+                        try
+                        {
+                            if (!AS2Store.WriteAtomic(path, written[me]))
+                                lock (sync) everyWriteSucceeded = false;
+                        }
+                        catch (Exception e) { lock (sync) writeFailure = e; }
+                    });
+
+                    if (!everyWriteSucceeded) roundsThatReportedFailure++;
+                    if (!written.Contains(AS2Store.Read(path))) roundsThatLostTheContents++;
+                    if (File.Exists(path + ".tmp") || File.Exists(path + ".bak")) roundsThatLeftALeftover++;
+                    rounds++;
+                }
+
+                True("AS2Store: the write race actually ran (" + racers + " threads over "
+                     + rounds + " rounds)", rounds > 0);
+
+                if (writeFailure == null)
+                    Pass("AS2Store: writing one path from many threads never threw");
+                else
+                    Fail("AS2Store: writing one path from many threads threw -- "
+                         + writeFailure.GetType().Name + ": " + writeFailure.Message);
+
+                True("AS2Store: no thread was told its write failed (" + roundsThatReportedFailure
+                     + " rounds said one was)", roundsThatReportedFailure == 0);
+
+                True("AS2Store: the file holds what one of the writers wrote ("
+                     + roundsThatLostTheContents + " rounds held something else)",
+                     roundsThatLostTheContents == 0);
+
+                True("AS2Store: a contended write leaves no .tmp or .bak behind ("
+                     + roundsThatLeftALeftover + " rounds left one)", roundsThatLeftALeftover == 0);
+
+                // The fallback logs a warning for every collision, and an unfixed run makes
+                // thousands. Nothing here asserts on them, and the checks after this one do.
+                ModApiPlugin.Log.Clear();
+            }
+            finally
+            {
+                try { Directory.Delete(dir, true); } catch { /* a temp folder left behind is not a failure */ }
+            }
         }
 
         // ---- Plumbing ------------------------------------------------------------------------------
