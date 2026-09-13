@@ -92,3 +92,16 @@ jobs:
         if: '!cancelled()'
         shell: powershell
         run: .\tests\Check-ReleaseTooling.ps1
+
+      # The archive layout: the separator, the marker entries a Vortex extension recognises a
+      # download by, and the three files the community patch owns.
+      #
+      # Windows PowerShell for the same reason as the step above, and here it is the subject rather
+      # than the harness. The bug this checks for is that ZipFile::CreateFromDirectory writes the
+      # platform separator, so the behaviour under test only exists on this runner. On ubuntu the
+      # old code would have produced conforming archives and the check would have passed on a
+      # release nobody could install.
+      - name: The archive layout
+        if: '!cancelled()'
+        shell: powershell
+        run: .\tests\Check-ArchiveLayout.ps1
