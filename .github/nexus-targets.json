@@ -3,47 +3,41 @@
     "Which Nexus file slot each release asset is uploaded to. Read by .github/workflows/publish-to-nexus.yml.",
     "",
     "These ids are public on the mod page, so they are checked in rather than hidden in a secret. Only",
-    "the API key is a secret. Find them under Manage Files, or by turning on Advanced on the public",
-    "page: the mod id is the number in the page URL, and each file carries its own id.",
+    "the API key is a secret.",
     "",
-    "The upload action adds a new version to a slot that already exists. It cannot create the mod page",
-    "or the slot, so all three have to be uploaded by hand once before any of this runs. A file_id left",
-    "at 0 stops the workflow with a message rather than uploading nowhere.",
+    "mod_id is the COMPOSITE UID, not the number in the page URL. The v3 API composes it as",
+    "(gameId << 32 | modId), and the upload action passes it straight through to POST",
+    "/mods/{id}/changelogs. For this mod that is 9966 << 32 | 1 = 42803644071937. The page URL says",
+    "mods/1, and sending 1 would address a different mod entirely. Find it in the Advanced view, or",
+    "recompose it: gameId = uid >> 32, modId = uid & 0xFFFFFFFF.",
     "",
-    "asset is the release asset's name without the version and the .zip; the workflow forms",
+    "file_id is an ordinary file id, not a composite. If an upload fails with a 403 or a 404 on the",
+    "file, check that id space first.",
+    "",
+    "asset is the release asset name without the version and the .zip; the workflow forms",
     "AS2ModApi-0.2.2.zip from it and the tag.",
     "",
-    "Exactly one entry sets changelog and update_mod_version. All three slots live on one mod page, so",
-    "two entries claiming either would post the same changelog twice and set the page version twice.",
+    "ONLY LIST SLOTS THAT EXIST. The upload action adds a version to a slot; it cannot create the mod",
+    "page or the slot. A release asset with no entry here is skipped, and the workflow warns by name",
+    "so a missing slot cannot pass unnoticed. To add one: upload that zip to the mod page by hand",
+    "once, read its file id off Manage Files, and add it below.",
     "",
-    "primary_mod_manager_download decides which file Vortex fetches when somebody presses the mod",
-    "manager download button on the page. Leave every entry false to keep whatever the page is already",
-    "set to; setting it here overrides that on the next release."
+    "Exactly one entry sets changelog and update_mod_version. All slots live on one mod page, so two",
+    "entries claiming either would post the changelog twice and set the page version twice.",
+    "",
+    "primary_mod_manager_download decides which file Vortex fetches from the mod manager download",
+    "button. Leave every entry false to keep whatever the page is already set to."
   ],
 
-  "game_domain": "CONFIRM-THE-NEXUS-DOMAIN",
-  "mod_id": 0,
+  "game_domain": "audiosurf2",
+  "mod_id": 42803644071937,
 
   "files": [
     {
       "asset": "AS2ModFramework",
-      "file_id": 0,
+      "file_id": 7854015,
       "changelog": true,
       "update_mod_version": true,
-      "primary_mod_manager_download": false
-    },
-    {
-      "asset": "AS2ModLoader",
-      "file_id": 0,
-      "changelog": false,
-      "update_mod_version": false,
-      "primary_mod_manager_download": false
-    },
-    {
-      "asset": "AS2ModApi",
-      "file_id": 0,
-      "changelog": false,
-      "update_mod_version": false,
       "primary_mod_manager_download": false
     }
   ]

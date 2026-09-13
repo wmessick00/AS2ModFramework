@@ -13,10 +13,18 @@
 # of roughly 600 KB is cheaper than two more third-party actions to pin and keep current, and the
 # release is the one copy of those bytes either way.
 #
-# Re-running this is NOT free. The upload action adds a new version to a file slot every time it
-# runs, so a re-run after a partial failure leaves a duplicate version to delete by hand on Nexus.
-# fail-fast is off so one bad slot does not take the other two with it, which keeps the number of
-# those to clean up as small as it can be.
+# Re-running this is NOT free, in two ways.
+#
+#   - The upload action adds a new version to a file slot every time it runs, so a re-run after a
+#     partial failure leaves a duplicate version to delete by hand on Nexus.
+#   - POST /mods/{id}/changelogs is additive. The API documents it as appending further text for a
+#     version rather than replacing what is there, so a second run against the same version leaves
+#     the changelog printed twice on the mod page.
+#
+# fail-fast is off so one bad slot does not take the others with it, which keeps both of those down
+# to the slots that actually failed. If a re-run is needed after the changelog already posted, clear
+# the changelog entry on Nexus first, or drop `changelog` from that entry in nexus-targets.json for
+# the re-run.
 
 name: Publish to Nexus Mods
 
@@ -174,6 +182,22 @@ jobs:
               exit 1
             fi
           done
+
+          # And the other direction, which is a warning rather than an error.
+          #
+          # A slot has to be created by hand before it can be written to, so a release carrying a
+          # package with no slot yet is a real intermediate state, not a mistake. Skipping it
+          # silently is what would be the mistake: the zip is on GitHub, nobody on Nexus can see it,
+          # and nothing said so.
+          while read -r asset; do
+            case "$asset" in
+              *.zip) ;;
+              *) continue ;;
+            esac
+            if ! printf '%s' "$JSON" | jq -e --arg a "$asset" 'any(.[]; .filename == $a)' > /dev/null; then
+              echo "::warning::$asset is on the release but has no file slot in $CONFIG, so it is not going to Nexus."
+            fi
+          done < on-release.txt
 
           echo "json=$JSON" >> "$GITHUB_OUTPUT"
           printf '%s' "$JSON" | jq .
