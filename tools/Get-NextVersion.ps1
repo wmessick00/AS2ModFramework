@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     Decides the next version for a release, from what actually changed since the last one.
 
@@ -282,16 +282,55 @@ function Invoke-Native {
     $previous = $ErrorActionPreference
     $ErrorActionPreference = 'Continue'
     try {
-        $output = & $Exe @Arguments 2>$null
+        # 2>&1, not 2>$null. Windows PowerShell turns a redirected native stderr line into an
+        # ErrorRecord, which is the whole reason this runs under Continue -- under Stop it ends the
+        # script. Merged, both streams arrive in one list and the record type tells them apart, so
+        # stdout stays exactly what every existing caller already reads and stderr becomes readable
+        # instead of thrown away.
+        #
+        # Not 2>$someFile, which also survives here but writes PowerShell's decorated rendering of
+        # the record into it -- the "At C:\...\ReleaseGit.ps1:40 char:19" block and the
+        # CategoryInfo lines, around the one sentence that mattered. That is a worse diagnostic
+        # than none. Checked both ways against git and cmd under 5.1 before choosing.
+        $merged = & $Exe @Arguments 2>&1
         $code = $LASTEXITCODE
         # Clear it deliberately. A failure here is an answer, not a fault -- git describe exits 128
         # in a repo with no tags, which is the first-release case -- and pack.ps1 tests $LASTEXITCODE
         # after its own dotnet build calls. Leaving 128 sitting there would fail the next build that
         # actually succeeded. The exit code the caller wants is on the returned object.
         $global:LASTEXITCODE = 0
-        return [pscustomobject]@{ ExitCode = $code; Output = $output }
+
+        $out = @()
+        $err = @()
+        foreach ($line in $merged) {
+            if ($line -is [System.Management.Automation.ErrorRecord]) { $err += $line.ToString() }
+            else { $out += $line }
+        }
+
+        return [pscustomobject]@{ ExitCode = $code; Output = $out; Error = $err }
     }
     finally { $ErrorActionPreference = $previous }
+}
+
+# The reason a native command gave, for the message a caller throws.
+#
+# Issue AS2-MusicFolders #36, and this file is shared, so the fix is shared. git and gh write the
+# part a maintainer needs -- a rejected push, an auth failure, a hook that refused the commit -- to
+# stderr, and every throw below used to be built from stdout alone. The sentence arrived with a
+# blank line under it and the run had to be repeated by hand to find out why.
+#
+# Falls back to stdout, then to saying plainly that there was nothing, because a message that
+# trails off is what this is here to stop.
+function Get-NativeReason($result) {
+    if ($null -eq $result) { return '(no result)' }
+
+    $err = @($result.Error | Where-Object { $_ -and "$_".Trim() })
+    if ($err.Count -gt 0) { return ($err -join [Environment]::NewLine) }
+
+    $out = @($result.Output | Where-Object { $_ -and "$_".Trim() })
+    if ($out.Count -gt 0) { return ($out -join [Environment]::NewLine) }
+
+    return '(the command printed nothing)'
 }
 # ---- The last release ---------------------------------------------------------------------------
 #
