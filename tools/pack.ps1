@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     Assembles the AS2ModFramework release zip: BepInEx core plus the bootstrap and the API, laid out
     to extract straight into the Audiosurf 2 folder.
@@ -262,6 +262,22 @@ function Invoke-ProjectBuild {
 
     try {
         foreach ($proj in @('src\AS2.Bootstrap\AS2.Bootstrap.csproj', 'src\AS2.ModApi\AS2.ModApi.csproj')) {
+            # Deliberately a bare & rather than Invoke-Native, and it must stay one.
+            #
+            # AS2-MusicFolders issue #37 read this as an oversight: pack.ps1 runs under
+            # $ErrorActionPreference = 'Stop', and a native command writing to stderr is supposed to end
+            # the script. Measured under Windows PowerShell 5.1, it does not. A native stderr line becomes
+            # a terminating ErrorRecord only when the stream is *redirected*; left alone it goes straight
+            # to the console and the script carries on. Both of this file's bare calls leave it alone.
+            #
+            # Routing them through Invoke-Native would make things worse, not safer: that wrapper redirects
+            # stderr to read it, so a compiler error or a gh failure would stop being printed as it
+            # happened and start arriving as a field on an object. The build output is the thing a
+            # maintainer watches. It stays on the console.
+            #
+            # $LASTEXITCODE is the check, and it is right here. Invoke-Native clears the global on purpose
+            # -- see the comment on its copy in Get-NextVersion.ps1 -- so a call routed through it would
+            # have to test .ExitCode instead, and a half-converted file is how that gets missed.
             & dotnet build (Join-Path $repoRoot $proj) -c $Configuration --nologo
             if ($LASTEXITCODE -ne 0) { throw "Build failed: $proj" }
         }
@@ -633,6 +649,22 @@ $checksums
 # any branch but the default one, so this names the same commit either way -- the point of saying it
 # is that the tag now follows the push instead of the two agreeing by luck.
 # AS2-SkinSettings issue #47, against the copy of ReleaseGit.ps1 these three repos share.
+# Deliberately a bare & rather than Invoke-Native, and it must stay one.
+#
+# AS2-MusicFolders issue #37 read this as an oversight: pack.ps1 runs under
+# $ErrorActionPreference = 'Stop', and a native command writing to stderr is supposed to end
+# the script. Measured under Windows PowerShell 5.1, it does not. A native stderr line becomes
+# a terminating ErrorRecord only when the stream is *redirected*; left alone it goes straight
+# to the console and the script carries on. Both of this file's bare calls leave it alone.
+#
+# Routing them through Invoke-Native would make things worse, not safer: that wrapper redirects
+# stderr to read it, so a compiler error or a gh failure would stop being printed as it
+# happened and start arriving as a field on an object. The build output is the thing a
+# maintainer watches. It stays on the console.
+#
+# $LASTEXITCODE is the check, and it is right here. Invoke-Native clears the global on purpose
+# -- see the comment on its copy in Get-NextVersion.ps1 -- so a call routed through it would
+# have to test .ExitCode instead, and a half-converted file is how that gets missed.
 & gh release create $tag @assets --repo $($upstream.Slug) --target $($upstream.Branch) --title "AS2ModFramework $version" --notes $notes
 if ($LASTEXITCODE -ne 0) { throw "gh release create failed for $tag" }
 

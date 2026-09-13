@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     The git and GitHub plumbing a release needs. Dot-sourced by tools\pack.ps1.
 
@@ -37,12 +37,51 @@ function Invoke-Native {
     $previous = $ErrorActionPreference
     $ErrorActionPreference = 'Continue'
     try {
-        $output = & $Exe @Arguments 2>$null
+        # 2>&1, not 2>$null. Windows PowerShell turns a redirected native stderr line into an
+        # ErrorRecord, which is the whole reason this runs under Continue -- under Stop it ends the
+        # script. Merged, both streams arrive in one list and the record type tells them apart, so
+        # stdout stays exactly what every existing caller already reads and stderr becomes readable
+        # instead of thrown away.
+        #
+        # Not 2>$someFile, which also survives here but writes PowerShell's decorated rendering of
+        # the record into it -- the "At C:\...\ReleaseGit.ps1:40 char:19" block and the
+        # CategoryInfo lines, around the one sentence that mattered. That is a worse diagnostic
+        # than none. Checked both ways against git and cmd under 5.1 before choosing.
+        $merged = & $Exe @Arguments 2>&1
         $code = $LASTEXITCODE
         $global:LASTEXITCODE = 0
-        return [pscustomobject]@{ ExitCode = $code; Output = $output }
+
+        $out = @()
+        $err = @()
+        foreach ($line in $merged) {
+            if ($line -is [System.Management.Automation.ErrorRecord]) { $err += $line.ToString() }
+            else { $out += $line }
+        }
+
+        return [pscustomobject]@{ ExitCode = $code; Output = $out; Error = $err }
     }
     finally { $ErrorActionPreference = $previous }
+}
+
+# The reason a native command gave, for the message a caller throws.
+#
+# Issue AS2-MusicFolders #36, and this file is shared, so the fix is shared. git and gh write the
+# part a maintainer needs -- a rejected push, an auth failure, a hook that refused the commit -- to
+# stderr, and every throw below used to be built from stdout alone. The sentence arrived with a
+# blank line under it and the run had to be repeated by hand to find out why.
+#
+# Falls back to stdout, then to saying plainly that there was nothing, because a message that
+# trails off is what this is here to stop.
+function Get-NativeReason($result) {
+    if ($null -eq $result) { return '(no result)' }
+
+    $err = @($result.Error | Where-Object { $_ -and "$_".Trim() })
+    if ($err.Count -gt 0) { return ($err -join [Environment]::NewLine) }
+
+    $out = @($result.Output | Where-Object { $_ -and "$_".Trim() })
+    if ($out.Count -gt 0) { return ($out -join [Environment]::NewLine) }
+
+    return '(the command printed nothing)'
 }
 
 # Remote, branch and owner/name, all off the tracked upstream. Returns $null when the branch tracks
@@ -72,7 +111,12 @@ function Get-Upstream($repoRoot) {
 function Get-DefaultBranch($slug) {
     $r = Invoke-Native gh @('repo', 'view', $slug, '--json', 'defaultBranchRef', '--jq', '.defaultBranchRef.name')
     if ($r.ExitCode -ne 0 -or -not $r.Output) {
-        throw "Could not read the default branch of $slug. -Publish needs it to know the tag lands on the commit it just pushed."
+        throw @"
+Could not read the default branch of $slug. -Publish needs it to know the tag lands on the commit
+it just pushed.
+
+$(Get-NativeReason $r)
+"@
     }
     return "$($r.Output)".Trim()
 }
@@ -81,11 +125,16 @@ function Get-DefaultBranch($slug) {
 function Assert-PublishReady($repoRoot) {
     $r = Invoke-Native git @('-C', $repoRoot, 'rev-parse', '--is-inside-work-tree')
     if ($r.ExitCode -ne 0) {
-        throw "-Publish needs a git repository, and $repoRoot is not one. The version bump has to be committed and pushed before the tag is created."
+        throw @"
+-Publish needs a git repository, and $repoRoot is not one. The version bump has to be committed and
+pushed before the tag is created.
+
+$(Get-NativeReason $r)
+"@
     }
 
     $r = Invoke-Native git @('-C', $repoRoot, 'status', '--porcelain')
-    if ($r.ExitCode -ne 0) { throw "git status failed in $repoRoot" }
+    if ($r.ExitCode -ne 0) { throw "git status failed in $repoRoot`n`n$(Get-NativeReason $r)" }
     $dirty = @($r.Output | Where-Object { $_ })
     if ($dirty.Count -gt 0) {
         throw @"
@@ -117,7 +166,11 @@ files to attach and the tag to attach them to, for uploading by hand.
 
     $r = Invoke-Native gh @('auth', 'status')
     if ($r.ExitCode -ne 0) {
-        throw "The GitHub CLI is installed but not signed in. Run: gh auth login"
+        throw @"
+The GitHub CLI is installed but not signed in. Run: gh auth login
+
+$(Get-NativeReason $r)
+"@
     }
 
     # Last, because it is the one check that needs the network and the sign-in above. The bump is
@@ -150,10 +203,10 @@ function Save-VersionBump($repoRoot, $versionFile, $version, $upstream) {
     }
 
     $r = Invoke-Native git @('-C', $repoRoot, 'add', '--', $relative)
-    if ($r.ExitCode -ne 0) { throw "git add failed for $relative" }
+    if ($r.ExitCode -ne 0) { throw "git add failed for $relative`n`n$(Get-NativeReason $r)" }
 
     $r = Invoke-Native git @('-C', $repoRoot, 'commit', '-m', "Take the version to $version")
-    if ($r.ExitCode -ne 0) { throw "git commit failed for the version bump.`n$($r.Output -join "`n")" }
+    if ($r.ExitCode -ne 0) { throw "git commit failed for the version bump.`n`n$(Get-NativeReason $r)" }
 
     $r = Invoke-Native git @('-C', $repoRoot, 'push', $upstream.Remote, "HEAD:$($upstream.Branch)")
     if ($r.ExitCode -ne 0) {
@@ -162,6 +215,8 @@ The version bump is committed but the push to $($upstream.Remote)/$($upstream.Br
 
 Nothing has been released. Push it yourself and re-run -- the bump is already in the constant, so
 the next run ships $version rather than bumping again.
+
+$(Get-NativeReason $r)
 "@
     }
 }
