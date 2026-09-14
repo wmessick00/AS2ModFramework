@@ -189,12 +189,17 @@ jobs:
                 asset,
                 file_id,
                 mod_id: $mod,
-                filename: "\(.asset)-\($v).zip",
-
-                # What the mod page calls the file, as opposed to what is uploaded. The action
-                # defaults this to filename, which puts a .zip on the end of every entry on the
-                # page -- the extension is not part of the name, and the page already says it is an
-                # archive.
+                # Three names for one package, and they are deliberately not the same.
+                #
+                # asset_file  what the GitHub release carries, which pack.ps1 named
+                # filename    what is uploaded, and what a browser saves when somebody downloads it
+                # display_name what the mod page calls the entry
+                #
+                # The version lives in the label rather than in the file, so the download keeps one
+                # stable name across releases. The action defaults display_name to filename, which
+                # is why it has to be given: left alone, the page would read AS2ModFramework.zip.
+                asset_file: "\(.asset)-\($v).zip",
+                filename: "\(.asset).zip",
                 display_name: "\(.asset)-\($v)",
 
                 category: (.category // "main"),
@@ -207,7 +212,7 @@ jobs:
           # pack.ps1 stopped emitting, would otherwise reach the upload job as a missing file after
           # the approval has already been given.
           gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name' > on-release.txt
-          for f in $(printf '%s' "$JSON" | jq -r '.[].filename'); do
+          for f in $(printf '%s' "$JSON" | jq -r '.[].asset_file'); do
             if ! grep -qxF "$f" on-release.txt; then
               echo "::error::$f is named in $CONFIG but is not among the assets on $TAG."
               exit 1
@@ -225,7 +230,7 @@ jobs:
               *.zip) ;;
               *) continue ;;
             esac
-            if ! printf '%s' "$JSON" | jq -e --arg a "$asset" 'any(.[]; .filename == $a)' > /dev/null; then
+            if ! printf '%s' "$JSON" | jq -e --arg a "$asset" 'any(.[]; .asset_file == $a)' > /dev/null; then
               echo "::warning::$asset is on the release but has no file slot in $CONFIG, so it is not going to Nexus."
             fi
           done < on-release.txt
@@ -255,10 +260,17 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ needs.prepare.outputs.tag }}
+          ASSET_FILE: ${{ matrix.target.asset_file }}
           FILENAME: ${{ matrix.target.filename }}
         run: |
           set -euo pipefail
-          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern "$FILENAME"
+
+          # The release carries the version in the file name and Nexus does not. Renaming here
+          # rather than changing what pack.ps1 emits keeps the GitHub download self-describing --
+          # somebody with three AS2ModFramework zips in a folder can still tell them apart -- while
+          # the Nexus download keeps one stable name across releases.
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern "$ASSET_FILE"
+          mv "$ASSET_FILE" "$FILENAME"
           ls -l "$FILENAME"
 
       - name: Upload to Nexus Mods
@@ -267,9 +279,10 @@ jobs:
           api_key:  ${{ secrets.NEXUS_API_KEY }}
           mod_id:   ${{ matrix.target.mod_id }}
           file_id:  ${{ matrix.target.file_id }}
+          # What is uploaded, and what a browser saves. No version in it.
           filename: ${{ matrix.target.filename }}
 
-          # filename is the file on disk and has to keep its extension; this is the label.
+          # What the page calls the entry. The version lives here.
           display_name: ${{ matrix.target.display_name }}
           version:  ${{ needs.prepare.outputs.version }}
           category: ${{ matrix.target.category }}
