@@ -50,7 +50,37 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
-. (Join-Path $PSScriptRoot 'ReleaseGit.ps1')
+# Its own copy rather than a dot-source of ReleaseGit.ps1, for the same reason Get-NextVersion.ps1
+# carries one: this has to run on its own. The Vortex extension repository has no ReleaseGit.ps1 --
+# it has no .NET release to plumb -- and it needs this file verbatim. One dependency-free script
+# drops into all three repositories; a dot-source would have forked it into two versions.
+#
+# Windows PowerShell turns a native command's stderr into an ErrorRecord, and with
+# $ErrorActionPreference = Stop that ends the script. git and gh both write to stderr for answers
+# that are not faults here, so native calls go through this and only the exit code decides.
+function Invoke-Native {
+    param([string]$Exe, [string[]]$Arguments)
+    $previous = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+        # 2>&1, not 2>$null. A redirected native stderr line becomes an ErrorRecord, which is the
+        # whole reason this runs under Continue. Merged, both streams arrive in one list and the
+        # record type tells them apart.
+        $merged = & $Exe @Arguments 2>&1
+        $code = $LASTEXITCODE
+        $global:LASTEXITCODE = 0
+
+        $out = @()
+        $err = @()
+        foreach ($line in $merged) {
+            if ($line -is [System.Management.Automation.ErrorRecord]) { $err += $line.ToString() }
+            else { $out += $line }
+        }
+
+        return [pscustomobject]@{ ExitCode = $code; Output = $out; Error = $err }
+    }
+    finally { $ErrorActionPreference = $previous }
+}
 
 # ---- The parsing, kept separate so tests\Check-ReleaseTooling.ps1 can drive it ------------------
 
