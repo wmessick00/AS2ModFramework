@@ -25,6 +25,15 @@
 .PARAMETER FromTag
     The previous release tag. Everything merged after it is in this release.
 
+    Resolved from the repository when omitted, and that resolution has an order to it: ask GitHub
+    for the latest release first, and only fall back to `git describe` on the local tags.
+
+    The order matters and was found the hard way. `gh release create` makes the tag on the remote,
+    so a maintainer's clone does not have it until something fetches. Asking git first therefore
+    answers with the release before last, and every pull request already shipped in the last release
+    gets listed again in this one. Get-NextVersion.ps1 resolves it the same way, and the two must
+    agree or the changelog covers a different span than the version decision did.
+
 .PARAMETER Slug
     owner/name, for looking up pull request titles. Without it, only the commit fallback runs.
 
@@ -120,6 +129,29 @@ function Format-ChangeList {
 
 # ---- Reading the repository --------------------------------------------------------------------
 
+# Same order as Get-NextVersion.ps1's own Get-LastRelease, and it has to stay the same: if one of
+# them answers v1.3.0 and the other v1.2.0, the changelog covers a different span than the version
+# decision did, and a release lists work it already shipped.
+function Get-LastReleaseTag {
+    if ($Slug -and (Get-Command gh -ErrorAction SilentlyContinue)) {
+        $r = Invoke-Native gh @('release', 'view', '--repo', $Slug, '--json', 'tagName')
+        if ($r.ExitCode -eq 0 -and $r.Output) {
+            try {
+                $tag = (($r.Output -join '') | ConvertFrom-Json).tagName
+                if ($tag) { return $tag }
+            }
+            catch { }
+        }
+    }
+
+    # Local tags only, so this is behind by a release whenever the last tag was made on the remote
+    # by gh and nothing has fetched since.
+    $r = Invoke-Native git @('-C', $RepoRoot, 'describe', '--tags', '--abbrev=0', '--match', 'v[0-9]*')
+    if ($r.ExitCode -eq 0 -and $r.Output) { return "$($r.Output)".Trim() }
+
+    return ''
+}
+
 function Get-MergeSubject($from) {
     $range = if ($from) { "$from..HEAD" } else { 'HEAD' }
     $r = Invoke-Native git @('-C', $RepoRoot, 'log', $range, '--merges', '--format=%s')
@@ -154,6 +186,8 @@ function Get-PullRequestTitle($numbers) {
 }
 
 # ---- The answer --------------------------------------------------------------------------------
+
+if (-not $FromTag) { $FromTag = Get-LastReleaseTag }
 
 $numbers = Get-MergedPullRequestNumber (Get-MergeSubject $FromTag)
 $titles  = Get-PullRequestTitle $numbers

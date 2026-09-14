@@ -197,8 +197,9 @@ if ($Publish) {
     # version's changelog. Discovering it is empty after the bump is pushed is discovering it too
     # late.
     #
-    # The previous tag comes from git rather than from the version decision, which has not run yet.
-    # No tag means a first release, and Get-ChangeList reads the whole history for that.
+    # Get-ChangeList resolves the previous tag itself, asking GitHub before git for the reason
+    # written up there: gh release create makes the tag on the remote, so a clone that has not
+    # fetched answers with the release before last and lists work that already shipped.
     Write-Step 'Building the change list'
 
     if ($ChangeLogText) {
@@ -210,14 +211,9 @@ if ($Publish) {
         Write-Host "    from $ChangeLog"
     }
     else {
-        $r = Invoke-Native git @('-C', $repoRoot, 'describe', '--tags', '--abbrev=0', '--match', 'v[0-9]*')
-        $fromTag = if ($r.ExitCode -eq 0) { "$($r.Output)".Trim() } else { '' }
-
         $changes = & (Join-Path $PSScriptRoot 'Get-ChangeList.ps1') `
-            -RepoRoot $repoRoot -FromTag $fromTag -Slug $upstream.Slug
-
-        $since = if ($fromTag) { "since $fromTag" } else { 'over the whole history' }
-        Write-Host "    from the pull requests merged $since"
+            -RepoRoot $repoRoot -Slug $upstream.Slug
+        Write-Host '    from the pull requests merged since the last release'
     }
 
     if (-not "$changes".Trim()) {
