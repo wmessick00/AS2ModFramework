@@ -190,6 +190,13 @@ jobs:
                 file_id,
                 mod_id: $mod,
                 filename: "\(.asset)-\($v).zip",
+
+                # What the mod page calls the file, as opposed to what is uploaded. The action
+                # defaults this to filename, which puts a .zip on the end of every entry on the
+                # page -- the extension is not part of the name, and the page already says it is an
+                # archive.
+                display_name: "\(.asset)-\($v)",
+
                 category: (.category // "main"),
                 changelog,
                 update_mod_version,
@@ -261,6 +268,9 @@ jobs:
           mod_id:   ${{ matrix.target.mod_id }}
           file_id:  ${{ matrix.target.file_id }}
           filename: ${{ matrix.target.filename }}
+
+          # filename is the file on disk and has to keep its extension; this is the label.
+          display_name: ${{ matrix.target.display_name }}
           version:  ${{ needs.prepare.outputs.version }}
           category: ${{ matrix.target.category }}
 
