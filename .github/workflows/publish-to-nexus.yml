@@ -197,8 +197,11 @@ jobs:
                 # version nor the extension. Nexus prints the version in its own column next to the
                 # name, so repeating it reads as a stutter, and .zip is not part of a name. The
                 # action defaults this to filename, so leaving it out gets both back.
+                # display_name is overridable per entry, because the name on the page is a choice
+                # somebody may already have made when they created the slot by hand. Falling back to
+                # the asset name would quietly rename their file on the next release.
                 filename: "\(.asset)-\($v).zip",
-                display_name: "\(.asset)",
+                display_name: (.display_name // .asset),
 
                 category: (.category // "main"),
                 changelog,
