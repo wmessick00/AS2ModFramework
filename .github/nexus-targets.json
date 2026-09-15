@@ -30,8 +30,9 @@
     "listing all three as Main Files invites somebody to install the combined one AND a split one and",
     "then wonder why Vortex reports every file as conflicting.",
     "",
-    "primary_mod_manager_download decides which file Vortex fetches from the mod manager download",
-    "button. Leave every entry false to keep whatever the page is already set to."
+    "primary_mod_manager_download marks the file as the default download for mod managers. It is true",
+    "on the combined package, because that is the one to install through Vortex -- the split packages",
+    "are the same bytes arranged differently. A page has one default, so no other entry sets it."
   ],
 
   "game_domain": "audiosurf2",
@@ -44,7 +45,7 @@
       "category": "main",
       "changelog": true,
       "update_mod_version": true,
-      "primary_mod_manager_download": false
+      "primary_mod_manager_download": true
     }
   ]
 }
