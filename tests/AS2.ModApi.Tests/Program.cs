@@ -40,6 +40,7 @@ namespace AS2.ModApi.Tests
                 FileNameGuards();
                 EnumerateFindsEveryFolderShape();
                 NegativeCasingResultsAreNotCached();
+                AmbiguousCasingIsNotGuessed();
                 LinkedFoldersAreNotFollowed();
                 DigitNamedFoldersAreTargetsToo();
 
@@ -410,6 +411,105 @@ namespace AS2.ModApi.Tests
 
             Same("once it lands, the next call picks up the on-disk casing",
                  TargetResolver.Normalize(key), "skins/999888/latearrival");
+        }
+
+        // ---- Regression: issue #78 -------------------------------------------------------------
+
+        /// <summary>Two folders that differ only in case are two targets, not one</summary>
+        // #78 -- the walk matched each segment case-insensitively and took the first hit
+        // On Windows that is the only hit, because the filesystem folds case itself
+        // The game is commonly played on Linux through Proton, where the filesystem does not, and
+        // "skins/Test" and "skins/test" are two real folders that can each hold a schema
+        // The first hit there is whichever one Directory.GetDirectories happened to list, and
+        // Canonicalize cached it, so for the rest of the session both folders keyed to the winner
+        // and one folder's saved settings were applied to the other
+        // The list checks come first and use synthetic names, because the on-disk fixture cannot be
+        // built on Windows and CI runs on Windows -- a check that always skips proves nothing
+        private static void AmbiguousCasingIsNotGuessed()
+        {
+            bool ambiguous;
+
+            Same("one case-insensitive match is adopted",
+                 TargetResolver.MatchSegment(new[] { "skins", "mods" }, "SKINS", out ambiguous), "skins");
+            False("and one match is not ambiguous", ambiguous);
+
+            Same("an exact match wins over a sibling spelled differently",
+                 TargetResolver.MatchSegment(new[] { "Test", "test" }, "test", out ambiguous), "test");
+            False("and an exact match is never ambiguous", ambiguous);
+
+            Same("an exact match wins whatever order the filesystem lists it in",
+                 TargetResolver.MatchSegment(new[] { "test", "Test" }, "Test", out ambiguous), "Test");
+
+            Same("an exact match still wins after two inexact ones",
+                 TargetResolver.MatchSegment(new[] { "Test", "tEst", "TEST" }, "TEST", out ambiguous), "TEST");
+            False("and it clears the ambiguity those two raised", ambiguous);
+
+            Null("two inexact matches name no one folder",
+                 TargetResolver.MatchSegment(new[] { "Test", "test" }, "TEST", out ambiguous));
+            True("and that reads as ambiguous rather than as absent", ambiguous);
+
+            Null("no match at all is null",
+                 TargetResolver.MatchSegment(new[] { "skins" }, "mods", out ambiguous));
+            False("and absent is not ambiguous", ambiguous);
+
+            Null("an empty container is null",
+                 TargetResolver.MatchSegment(new string[0], "skins", out ambiguous));
+            False("and empty is not ambiguous either", ambiguous);
+
+            CaseSensitiveDiskChecks();
+        }
+
+        /// <summary>
+        /// The same guard end to end, on a filesystem that can really hold both folders.
+        ///
+        /// Skipped on Windows, where building the fixture builds one folder. The list checks above
+        /// are what covers the decision on CI. This covers the walk, the cache and Enumerate
+        /// together, on the kind of machine the bug was reported from.
+        /// </summary>
+        private static void CaseSensitiveDiskChecks()
+        {
+            MakeTarget("skins/Twin");
+            MakeTarget("skins/twin");
+
+            var names = new List<string>();
+            foreach (string dir in Directory.GetDirectories(Abs("skins")))
+                names.Add(new DirectoryInfo(dir).Name);
+
+            if (!names.Contains("Twin") || !names.Contains("twin"))
+            {
+                Skip("Case-sensitive folder handling is unverified: this filesystem folds case, so " +
+                     "'skins/Twin' and 'skins/twin' are one folder. CI runs on Windows, which always does.");
+                RemoveTwins();
+                return;
+            }
+
+            Same("a key that spells one twin exactly keeps its own spelling",
+                 TargetResolver.Normalize("skins/Twin"), "skins/Twin");
+            Same("and the other twin keeps its own, not the first one's",
+                 TargetResolver.Normalize("skins/twin"), "skins/twin");
+
+            ModApiPlugin.Log.Clear();
+            Same("a key that spells neither twin is left as it came",
+                 TargetResolver.Normalize("skins/TWIN"), "skins/TWIN");
+            True("and the log says the two folders differ only in case",
+                 ModApiPlugin.Log.Mentions("apart from case"));
+
+            var keys = new List<string>();
+            foreach (Target t in TargetResolver.Enumerate(Schema)) keys.Add(t.Key);
+
+            True("Enumerate lists both twins rather than folding them together",
+                 keys.Contains("skins/Twin") && keys.Contains("skins/twin"));
+
+            RemoveTwins();
+        }
+
+        /// <summary>Takes the twins back out, because the counts below are built on the declared fixture</summary>
+        private static void RemoveTwins()
+        {
+            foreach (string relative in new[] { "skins/Twin", "skins/twin" })
+            {
+                try { if (Directory.Exists(Abs(relative))) Directory.Delete(Abs(relative), true); } catch { }
+            }
         }
 
         // ---- Regression: issue #13 -------------------------------------------------------------

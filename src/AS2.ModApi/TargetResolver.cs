@@ -108,8 +108,10 @@ namespace AS2.ModApi
         // browsing the selector gives "skins/rainbowdrive" for the skin that reports
         // "skins/Rainbowdrive" once a song is set up
         // Keys end up in mods' saved JSON, so two spellings of one skin strands somebody's settings
-        // It survives today only because Windows paths and the one dictionary that matters are both
-        // case-insensitive
+        // The game gets away with the inconsistency on Windows, where the filesystem folds case and
+        // both spellings name one folder. Under Proton on Linux they can be two real folders, which
+        // is why the walk refuses a segment it cannot decide rather than picking one -- see
+        // <see cref="MatchSegment"/>
         //
         // A path with "." or ".." segments is rejected, not collapsed. A key names a folder inside
         // the install, so anything that climbs is either the game behaving in a way nobody has seen
@@ -153,8 +155,13 @@ namespace AS2.ModApi
             return false;
         }
 
+        // Ordinal, not OrdinalIgnoreCase. An ignore-case cache is the same merge MatchSegment
+        // refuses, one layer up: on a case-sensitive filesystem "skins/Test" and "skins/test" are
+        // two folders, and an ignore-case lookup hands the second caller the first one's resolution
+        // whatever the walk would have said. The cost of ordinal is one extra directory walk per
+        // spelling on Windows, where every spelling resolves to the same answer anyway
         private static readonly Dictionary<string, string> CanonicalCache =
-            new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            new Dictionary<string, string>(StringComparer.Ordinal);
 
         /// <summary>
         /// A backstop rather than the real bound. Only keys that resolved to a folder on disk are
@@ -210,11 +217,22 @@ namespace AS2.ModApi
 
                 for (int i = 0; i < parts.Length; i++)
                 {
-                    string match = null;
+                    var names = new List<string>();
                     foreach (string dir in Directory.GetDirectories(current))
+                        names.Add(new DirectoryInfo(dir).Name);
+
+                    bool ambiguous;
+                    string match = MatchSegment(names, parts[i], out ambiguous);
+
+                    if (ambiguous)
                     {
-                        string name = new DirectoryInfo(dir).Name;
-                        if (string.Equals(name, parts[i], StringComparison.OrdinalIgnoreCase)) { match = name; break; }
+                        ModApiPlugin.Log.LogWarning(
+                            "Could not resolve the casing of '" + key + "': the folder '" + current +
+                            "' holds more than one directory named '" + parts[i] + "' apart from case. " +
+                            "None of them spells it exactly that way, so the key names no one folder. " +
+                            "The key stays as it came, so no data moves to the wrong folder. " +
+                            "Rename one of the directories.");
+                        return null;
                     }
 
                     if (match == null) return null;
@@ -238,6 +256,48 @@ namespace AS2.ModApi
                 // that we do not remember having failed, since the next call may well succeed.
                 return null;
             }
+        }
+
+        /// <summary>
+        /// The one name in <paramref name="names"/> that spells <paramref name="wanted"/>, or null
+        /// when nothing does. <paramref name="ambiguous"/> says which of the two happened.
+        /// </summary>
+        // On Windows the filesystem folds case itself, so at most one name can match and this is the
+        // first hit it always was
+        // The game is commonly played on Linux through Proton, where the filesystem is case-sensitive
+        // and "skins/Test" and "skins/test" are two real folders that can each hold a schema
+        // Taking whichever one Directory.GetDirectories listed first is a coin flip, and Canonicalize
+        // caches the result for the session, so both folders key to the winner and one folder's saved
+        // settings land on the other -- the exact fork in saved JSON Normalize exists to prevent
+        // An exact match is not a guess. It settles the segment whatever else sits beside it, which is
+        // also what keeps Enumerate giving those two folders two keys rather than one
+        // Without one, two matches mean the key names neither folder in particular, and the honest
+        // answer is the null the "no match" and "linked folder" cases already return
+        // Split out from ResolveCasing so it can be checked without a case-sensitive filesystem. CI
+        // runs on Windows, where the fixture this guards against cannot be built at all
+        internal static string MatchSegment(IList<string> names, string wanted, out bool ambiguous)
+        {
+            ambiguous = false;
+            string match = null;
+
+            for (int i = 0; i < names.Count; i++)
+            {
+                string name = names[i];
+                if (!string.Equals(name, wanted, StringComparison.OrdinalIgnoreCase)) continue;
+
+                if (string.Equals(name, wanted, StringComparison.Ordinal))
+                {
+                    // Not dead. Two inexact matches earlier in the list will have raised this, and
+                    // an exact match outranks any number of them.
+                    ambiguous = false;
+                    return name;
+                }
+
+                if (match != null) ambiguous = true;
+                else match = name;
+            }
+
+            return ambiguous ? null : match;
         }
 
         /// <summary>The absolute folder a key names, or null when it lands outside the game root</summary>
@@ -388,7 +448,11 @@ namespace AS2.ModApi
                 return found;
             }
 
-            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            // Ordinal, for the reason CanonicalCache is: this holds keys, and on a case-sensitive
+            // filesystem "skins/Test" and "skins/test" are two folders with two keys. Folding case
+            // here would drop the second one from every list with nothing said. Two keys that differ
+            // only in case cannot both exist on Windows, so nothing there changes.
+            var seen = new HashSet<string>(StringComparer.Ordinal);
 
             CollectFrom(SkinsDir, SelectorKind.Skin, fileName, found, seen);
 
