@@ -47,6 +47,7 @@ namespace AS2.ModApi.Tests
                 SurfaceChecks.Run();
                 StoreChecks.Run();
                 ConcurrencyChecks.Run();
+                MenuChecks.Run();
                 ScrollChecks.Run();
             UiGeometryChecks.Run();
                 PatchChecks.Run();
