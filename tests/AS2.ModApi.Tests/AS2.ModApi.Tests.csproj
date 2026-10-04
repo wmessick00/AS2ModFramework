@@ -54,6 +54,8 @@
       own file. Same split as Str and SelectorKind above. See #38 and ScrollChecks.cs.
     -->
     <Compile Include="..\..\src\AS2.ModApi\ScrollTurns.cs"    Link="Production\ScrollTurns.cs" />
+    <!-- Which control id a mod's slider or scrollbar gets. Pure, so it is held cold. See #86. -->
+    <Compile Include="..\..\src\AS2.ModApi\ControlIds.cs"     Link="Production\ControlIds.cs" />
 
     <!--
       The numbers the Mod Menu is laid out from. AS2Ui is IMGUI end to end and can never

@@ -564,11 +564,19 @@ namespace AS2.ModApi
         public const float SliderHandleWidth = 15f;
         public const float SliderHandleHeight = 44f;
 
+        // The caller is who the control belongs to, so a drag on this mod's slider is not read as a
+        // drag on another's. NoInlining is what makes GetCallingAssembly the mod and not us #86
+        [MethodImpl(MethodImplOptions.NoInlining)]
         public static float Slider(Rect r, float value, float min, float max)
+        {
+            return SliderFor(Assembly.GetCallingAssembly(), r, value, min, max);
+        }
+
+        private static float SliderFor(Assembly owner, Rect r, float value, float min, float max)
         {
             if (NoGuiContext("AS2Ui.Slider")) return value;
 
-            try { return SliderBody(r, value, min, max); }
+            try { return SliderBody(ControlIds.HintFor(SliderHash, owner), r, value, min, max); }
             catch (Exception ex)
             {
                 WarnOnce("AS2Ui.Slider failed: " + ex.Message);
@@ -576,14 +584,14 @@ namespace AS2.ModApi
             }
         }
 
-        private static float SliderBody(Rect r, float value, float min, float max)
+        private static float SliderBody(int hint, Rect r, float value, float min, float max)
         {
             float u = Unit;
             float handleW = Mathf.Max(2f, SliderHandleWidth * u);
             float usable = Mathf.Max(1f, r.width - handleW);
             float span = Mathf.Max(0.0001f, max - min);
 
-            int id = GUIUtility.GetControlID(SliderHash, FocusType.Passive);
+            int id = GUIUtility.GetControlID(hint, FocusType.Passive);
             Event e = Event.current;
 
             switch (e.GetTypeForControl(id))
@@ -719,9 +727,12 @@ namespace AS2.ModApi
         // multiplier
         // It describes the value passed in, not the value returned, so during a drag it trails the
         // handle by one IMGUI event. The game's own rows do the same, and it is not visible
+        [MethodImpl(MethodImplOptions.NoInlining)]   // GetCallingAssembly must see the mod, not us
         public static float SliderRow(Rect row, string label, float value, float min, float max, string valueText)
         {
             if (NoGuiContext("AS2Ui.SliderRow")) return value;
+
+            Assembly owner = Assembly.GetCallingAssembly();
 
             try
             {
@@ -733,7 +744,7 @@ namespace AS2.ModApi
                 if (!Str.IsBlank(label) && LabelRight != null)
                     GUI.Label(labelRect, label, LabelRight);
 
-                float result = Slider(control, value, min, max);
+                float result = SliderFor(owner, control, value, min, max);
 
                 if (!Str.IsBlank(valueText) && Value != null)
                     GUI.Label(valueRect, valueText, Value);
@@ -757,9 +768,12 @@ namespace AS2.ModApi
         // than the screen
         // The readout follows the handle as it drags, so the label names the option it is about to
         // be set to
+        [MethodImpl(MethodImplOptions.NoInlining)]   // GetCallingAssembly must see the mod, not us
         public static int ChoiceRow(Rect row, string label, int index, string[] options)
         {
             if (NoGuiContext("AS2Ui.ChoiceRow")) return index;
+
+            Assembly owner = Assembly.GetCallingAssembly();
 
             // No options is not a failure worth warning about -- a schema with an empty list is the
             // caller's data, not a mistake in this call -- but there is no row to draw either.
@@ -778,7 +792,7 @@ namespace AS2.ModApi
                 if (!Str.IsBlank(label) && LabelRight != null)
                     GUI.Label(labelRect, label, LabelRight);
 
-                float raw = Slider(control, current, 0f, count - 1);
+                float raw = SliderFor(owner, control, current, 0f, count - 1);
                 int picked = Mathf.Clamp(Mathf.RoundToInt(raw), 0, count - 1);
 
                 if (Value != null) GUI.Label(valueRect, options[picked] ?? "", Value);
@@ -963,7 +977,8 @@ namespace AS2.ModApi
         [MethodImpl(MethodImplOptions.NoInlining)]   // GetCallingAssembly must see the mod, not us
         public static void EndScroll(ref Vector2 scroll)
         {
-            ScrollEnd turn = Turns.End(Assembly.GetCallingAssembly());
+            Assembly owner = Assembly.GetCallingAssembly();
+            ScrollEnd turn = Turns.End(owner);
             if (turn.Warning != null) WarnOnce(turn.Warning);
             if (!turn.Close) return;
 
@@ -973,7 +988,7 @@ namespace AS2.ModApi
 
                 float gutter = ScrollGutter * Unit;
                 var track = new Rect(_scrollBody.xMax - gutter, _scrollBody.y, gutter, _scrollBody.height);
-                scroll.y = Scrollbar(track, scroll.y, _scrollContent);
+                scroll.y = ScrollbarFor(owner, track, scroll.y, _scrollContent);
             }
             catch (Exception ex) { WarnOnce("AS2Ui.EndScroll failed: " + ex.Message); }
         }
@@ -985,7 +1000,14 @@ namespace AS2.ModApi
         // as 0, since no other value is in range
         // Clicking anywhere in the track jumps the thumb to the cursor and starts a drag, which is
         // how <see cref="Slider"/> and the game's own lists behave
+        // Keyed to the calling mod, as <see cref="Slider"/> is #86
+        [MethodImpl(MethodImplOptions.NoInlining)]
         public static float Scrollbar(Rect track, float scrollY, float contentHeight)
+        {
+            return ScrollbarFor(Assembly.GetCallingAssembly(), track, scrollY, contentHeight);
+        }
+
+        private static float ScrollbarFor(Assembly owner, Rect track, float scrollY, float contentHeight)
         {
             if (NoGuiContext("AS2Ui.Scrollbar")) return scrollY;
 
@@ -1004,7 +1026,7 @@ namespace AS2.ModApi
                 float thumbX = track.x + (track.width - size) * 0.5f;
                 float railX = track.x + (track.width - rail) * 0.5f;
 
-                int id = GUIUtility.GetControlID(ScrollbarHash, FocusType.Passive);
+                int id = GUIUtility.GetControlID(ControlIds.HintFor(ScrollbarHash, owner), FocusType.Passive);
                 Event e = Event.current;
 
                 switch (e.GetTypeForControl(id))
