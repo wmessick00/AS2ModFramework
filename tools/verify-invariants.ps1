@@ -72,6 +72,15 @@ Add-Type -Path $CecilPath | Out-Null
 #
 # Keep these short, and give every entry a reason. An allowlist that grows without comment proves
 # nothing. "Type::Method" against the game's own assembly.
+#
+# "Type" is the type's FULL name: its namespace and any types it is nested in, as Cecil spells it
+# ("Outer/Inner"). Every type below sits in the global namespace and is not nested, which is why
+# each reads as a bare name, and that is a fact about the game, not a shorthand. Matching on the
+# simple name alone let any type that happened to share one with an entry here, in another
+# namespace or nested inside another type, borrow the entry's review: a second Mode, or a nested
+# UIManager, with a method called get_relativePath would have gone straight through rule 4 without
+# anybody having looked at it. The failure message prints the key it computed, so adding an entry
+# for a type that is not global is a copy and paste.
 
 $AllowedGameCalls = @{
     # AS2Input.Lock(). The framework's one deliberate write into the game, and the reason that class
@@ -143,6 +152,20 @@ function Get-MemberKey($memberRef) {
     return "$($t.Name)::$($memberRef.Name)"
 }
 
+<#
+    The identity a call into the game is matched against the allowlist by: the declaring type's full
+    name, then the member. Not Get-MemberKey, whose simple type name is what rules 1, 3 and 5 are
+    written against and is the right trade there: a name matched too loosely makes those rules
+    report something that is not a violation, which is the safe direction. An allowlist is the other
+    way round, since matching too loosely is what lets an unreviewed call through, so this is the
+    one place the namespace and the enclosing types have to be part of the answer.
+#>
+function Get-GameMemberKey($memberRef) {
+    $t = Get-ElementTypeRef $memberRef.DeclaringType
+    if ($null -eq $t) { return $memberRef.Name }
+    return "$($t.FullName)::$($memberRef.Name)"
+}
+
 function Get-AllTypes($module) {
     $out = New-Object System.Collections.Generic.List[object]
     $queue = New-Object System.Collections.Generic.Queue[object]
@@ -211,9 +234,11 @@ foreach ($type in $allTypes) {
                             Add-Finding 1 $at "broadcasts on the game's Messenger bus ($key)"
                             continue
                         }
-                        # Rule 4 -- everything else into the game needs a reviewed allowlist entry.
-                        if (-not $AllowedGameCalls.ContainsKey($key)) {
-                            Add-Finding 4 $at "calls $key, which is not on the reviewed allowlist in tools\verify-invariants.ps1"
+                        # Rule 4 -- everything else into the game needs a reviewed allowlist entry,
+                        # matched on the full type name (see the allowlist above, and #85).
+                        $gameKey = Get-GameMemberKey $m
+                        if (-not $AllowedGameCalls.ContainsKey($gameKey)) {
+                            Add-Finding 4 $at "calls $gameKey, which is not on the reviewed allowlist in tools\verify-invariants.ps1"
                         }
                         continue
                     }
