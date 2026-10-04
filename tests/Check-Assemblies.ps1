@@ -598,6 +598,17 @@ $addition = Get-Verdict $onePublicMethod `
 
 Same 'the next version after an addition steps the minor' $addition.Next '1.1.0'
 }
+catch {
+    # Where it stopped, and not only why. A fixture that cannot be written, or a script that throws
+    # while it runs, surfaces from a Windows PowerShell script as the one line of the exception
+    # against the line that called this, which says nothing about which of forty fixtures it was.
+    Write-Output ''
+    Write-Output "  FAIL  the checks stopped before they finished: $($_.Exception.GetType().FullName): $($_.Exception.Message)"
+    Write-Output "        at line $($_.InvocationInfo.ScriptLineNumber): $($_.InvocationInfo.Line.Trim())"
+    if ($_.ScriptStackTrace) { Write-Output $_.ScriptStackTrace }
+    if ($_.Exception.StackTrace) { Write-Output $_.Exception.StackTrace }
+    $script:Failures.Add("the checks stopped before they finished: $($_.Exception.Message)")
+}
 finally {
     try { Remove-Item -Recurse -Force $work } catch { }
 }
