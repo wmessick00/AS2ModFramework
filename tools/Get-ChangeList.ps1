@@ -198,21 +198,59 @@ function Get-CommitSubject($from) {
 
 # One call for every title, rather than one per pull request. A release with a dozen merged pull
 # requests should not be a dozen round trips while somebody watches a release run.
+#
+# That one call is a page, though: --limit 200 is the most recent two hundred merged pull requests
+# and no more. A pull request outside it was not in the answer, and what became of it was nothing --
+# the loop below simply never found its title, and the change list was one entry short with no word
+# on why. So whatever the page did not hold is asked for by number, and what still cannot be had is
+# said out loud. Every way this gives up says so as well: no gh, a failed call, an answer that is not
+# JSON. The fallback to commit subjects that follows is the right one and it used to be silent. #82.
 function Get-PullRequestTitle($numbers) {
     if (-not $Slug -or $numbers.Count -eq 0) { return @{} }
-    if (-not (Get-Command gh -ErrorAction SilentlyContinue)) { return @{} }
+
+    if (-not (Get-Command gh -ErrorAction SilentlyContinue)) {
+        Write-Warning 'gh is not installed, so pull request titles cannot be looked up. The change list falls back to commit subjects.'
+        return @{}
+    }
 
     $r = Invoke-Native gh @('pr', 'list', '--repo', $Slug, '--state', 'merged',
                             '--limit', '200', '--json', 'number,title')
-    if ($r.ExitCode -ne 0) { return @{} }
+    if ($r.ExitCode -ne 0) {
+        Write-Warning "gh could not list the merged pull requests of $Slug (exit $($r.ExitCode)): $(Get-Reason $r). The change list falls back to commit subjects."
+        return @{}
+    }
 
     $titles = @{}
     try {
         foreach ($pr in (($r.Output -join '') | ConvertFrom-Json)) { $titles[[int]$pr.number] = $pr.title }
     }
-    catch { return @{} }
+    catch {
+        Write-Warning "gh answered with something that is not a list of pull requests ($($_.Exception.Message)). The change list falls back to commit subjects."
+        return @{}
+    }
+
+    # What the page did not hold, one at a time. Rare, so a call each is fine.
+    foreach ($n in $numbers) {
+        if ($titles.ContainsKey($n)) { continue }
+
+        $one = Invoke-Native gh @('pr', 'view', "$n", '--repo', $Slug, '--json', 'title')
+        if ($one.ExitCode -ne 0) { continue }
+
+        try {
+            $title = (($one.Output -join '') | ConvertFrom-Json).title
+            if ($title) { $titles[$n] = $title }
+        }
+        catch { }
+    }
 
     return $titles
+}
+
+# What a failed native call said, for a warning to carry.
+function Get-Reason($result) {
+    $said = @($result.Error | Where-Object { $_ -and "$_".Trim() })
+    if ($said.Count -gt 0) { return ($said -join ' ') }
+    return 'it gave no reason'
 }
 
 # ---- The answer --------------------------------------------------------------------------------
@@ -225,6 +263,11 @@ $titles  = Get-PullRequestTitle $numbers
 $wanted = New-Object System.Collections.Generic.List[string]
 foreach ($n in $numbers) {
     if ($titles.ContainsKey($n)) { $wanted.Add($titles[$n]) }
+    elseif ($titles.Count -gt 0) {
+        # Only when some titles were found. If none were, the lookup as a whole failed and said so,
+        # and a line for every pull request would bury the one that matters.
+        Write-Warning "Pull request #$n was merged in this release but its title could not be found, so it is not in the change list."
+    }
 }
 
 # Falls back when there were no merge commits, and also when gh could not be reached. A release note
