@@ -199,6 +199,111 @@ function New-GameCall($module, $namespace, $typeName, $method, $outer = '', $gen
     return $ref
 }
 
+
+# ---- Describing a public surface -------------------------------------------------------------------
+#
+# Just enough Cecil to say "a public class with these members", for the surface comparison. A type
+# from the core library is written as a reference rather than imported from the running PowerShell,
+# whose own runtime is not the one the game has, and the reference is all the scripts read.
+
+function New-CoreType($module, $namespace, $name) {
+    return New-Object Mono.Cecil.TypeReference($namespace, $name, $module, $module.TypeSystem.CoreLibrary)
+}
+
+function Add-Class($asm, $name, [string]$visibility = 'public', $base = $null, [string[]]$interfaces = @(), $namespace = 'Fixture') {
+    $module = $asm.MainModule
+    $attrs = switch ($visibility) { 'public' { [Mono.Cecil.TypeAttributes]::Public } default { [Mono.Cecil.TypeAttributes]::NotPublic } }
+    if ($null -eq $base) { $base = $module.TypeSystem.Object }
+    $t = New-Object Mono.Cecil.TypeDefinition($namespace, $name, $attrs, $base)
+    foreach ($i in $interfaces) {
+        $t.Interfaces.Add((New-Object Mono.Cecil.InterfaceImplementation((New-CoreType $module 'System' $i))))
+    }
+    $module.Types.Add($t)
+    return $t
+}
+
+function Add-Nested($outer, $name, [string]$visibility = 'public') {
+    $module = $outer.Module
+    $attrs = switch ($visibility) {
+        'public'  { [Mono.Cecil.TypeAttributes]::NestedPublic }
+        'family'  { [Mono.Cecil.TypeAttributes]::NestedFamily }
+        default   { [Mono.Cecil.TypeAttributes]::NestedPrivate }
+    }
+    $t = New-Object Mono.Cecil.TypeDefinition('', $name, $attrs, $module.TypeSystem.Object)
+    $outer.NestedTypes.Add($t)
+    return $t
+}
+
+function Add-Method($type, $name, [string]$visibility = 'public', [switch]$static, $params = @(), $return = $null, [int]$generics = 0) {
+    $module = $type.Module
+    $attrs = switch ($visibility) {
+        'public'   { [Mono.Cecil.MethodAttributes]::Public }
+        'family'   { [Mono.Cecil.MethodAttributes]::Family }
+        'internal' { [Mono.Cecil.MethodAttributes]::Assembly }
+        default    { [Mono.Cecil.MethodAttributes]::Private }
+    }
+    if ($static) { $attrs = $attrs -bor [Mono.Cecil.MethodAttributes]::Static }
+    if ($null -eq $return) { $return = $module.TypeSystem.Void }
+
+    $m = New-Object Mono.Cecil.MethodDefinition($name, $attrs, $return)
+    $n = 0
+    foreach ($p in $params) {
+        $m.Parameters.Add((New-Object Mono.Cecil.ParameterDefinition(("p" + $n++), [Mono.Cecil.ParameterAttributes]::None, $p)))
+    }
+    for ($g = 0; $g -lt $generics; $g++) {
+        $m.GenericParameters.Add((New-Object Mono.Cecil.GenericParameter(("T" + $g), $m)))
+    }
+    $il = $m.Body.GetILProcessor()
+    $il.Append($il.Create([Mono.Cecil.Cil.OpCodes]::Ret))
+    $type.Methods.Add($m)
+    return $m
+}
+
+function Add-Field($type, $name, $fieldType, [string]$visibility = 'public', [switch]$static) {
+    $attrs = switch ($visibility) {
+        'public' { [Mono.Cecil.FieldAttributes]::Public }
+        'family' { [Mono.Cecil.FieldAttributes]::Family }
+        default  { [Mono.Cecil.FieldAttributes]::Private }
+    }
+    if ($static) { $attrs = $attrs -bor [Mono.Cecil.FieldAttributes]::Static }
+    $f = New-Object Mono.Cecil.FieldDefinition($name, $attrs, $fieldType)
+    $type.Fields.Add($f)
+    return $f
+}
+
+# A public const string: a literal static field with a value. Its value is exactly what the surface
+# must not render, since the version constant is one and changes in every release.
+function Add-Constant($type, $name, $value) {
+    $attrs = [Mono.Cecil.FieldAttributes]::Public -bor [Mono.Cecil.FieldAttributes]::Static -bor
+             [Mono.Cecil.FieldAttributes]::Literal -bor [Mono.Cecil.FieldAttributes]::HasDefault
+    $f = New-Object Mono.Cecil.FieldDefinition($name, $attrs, $type.Module.TypeSystem.String)
+    $f.Constant = $value
+    $type.Fields.Add($f)
+    return $f
+}
+
+# An enum: System.Enum as its base, the value__ field every enum has, and one literal per member.
+function Add-Enum($asm, $name, $members, [string]$visibility = 'public') {
+    $module = $asm.MainModule
+    $attrs = [Mono.Cecil.TypeAttributes]::Sealed -bor
+             $(if ($visibility -eq 'public') { [Mono.Cecil.TypeAttributes]::Public } else { [Mono.Cecil.TypeAttributes]::NotPublic })
+    $t = New-Object Mono.Cecil.TypeDefinition('Fixture', $name, $attrs, (New-CoreType $module 'System' 'Enum'))
+
+    $special = [Mono.Cecil.FieldAttributes]::Public -bor [Mono.Cecil.FieldAttributes]::SpecialName -bor [Mono.Cecil.FieldAttributes]::RTSpecialName
+    $t.Fields.Add((New-Object Mono.Cecil.FieldDefinition('value__', $special, $module.TypeSystem.Int32)))
+
+    foreach ($pair in $members) {
+        $flags = [Mono.Cecil.FieldAttributes]::Public -bor [Mono.Cecil.FieldAttributes]::Static -bor
+                 [Mono.Cecil.FieldAttributes]::Literal -bor [Mono.Cecil.FieldAttributes]::HasDefault
+        $f = New-Object Mono.Cecil.FieldDefinition($pair[0], $flags, $t)
+        $f.Constant = [int]$pair[1]
+        $t.Fields.Add($f)
+    }
+
+    $module.Types.Add($t)
+    return $t
+}
+
 function Save-Fixture($asm, $fileName) {
     $path = Join-Path $work $fileName
     $asm.Write($path)
@@ -286,6 +391,212 @@ Same 'and nothing else was flagged by rule 4' $flagged.Count 4
 True 'the message names the full type, so that an entry for it is a copy and paste' `
      ($result.Text -match 'calls Other\.Namespace\.Mode::get_relativePath, which is not on the reviewed allowlist')
 
+
+# ---- Get-NextVersion.ps1, rule 1: the public surface decides major or minor ----------------------
+#
+# Issue #83. "The whole contract for a library like AS2.ModApi", in the script's own words, and
+# nothing held it: the checks for this script cover the arithmetic and the path globs. A subtle
+# fault here ships a breaking change as a minor or a patch, and every mod compiled against the
+# framework meets it as a missing method.
+#
+# Each case is two assemblies, a tagged repository to stand for the last release, and the real
+# script. The verdict is what the script says; 'none' is what falls out when the surface is
+# unchanged and no file changed since the tag, so it stands for "rule 1 found nothing".
+
+Write-Output ''
+Write-Output 'Get-NextVersion.ps1, rule 1: what the public surface says'
+
+$git = Get-Command git -ErrorAction SilentlyContinue
+if (-not $git) { throw 'git is needed for these checks, to stand in for a tagged release.' }
+
+$repo = Join-Path $work 'repo'
+New-Item -ItemType Directory -Force -Path $repo | Out-Null
+foreach ($cmd in @(
+        @('init', '-q'),
+        @('-c', 'user.email=check@example.invalid', '-c', 'user.name=check', 'commit', '-q', '--allow-empty', '-m', 'release'),
+        @('tag', 'v1.0.0'))) {
+    & git -C $repo @cmd 2>&1 | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw "git $($cmd -join ' ') failed in the fixture repository" }
+}
+
+$nextVersion = Join-Path $repoRoot 'tools\Get-NextVersion.ps1'
+$caseNumber = 0
+
+# $before and $after each build one assembly. The function returns the script's verdict object.
+function Get-Verdict([scriptblock]$before, [scriptblock]$after) {
+    $script:caseNumber++
+    $old = New-Fixture "Fixture.Before$($script:caseNumber)"
+    & $before $old
+    $oldPath = Save-Fixture $old "before$($script:caseNumber).dll"
+
+    $new = New-Fixture "Fixture.After$($script:caseNumber)"
+    & $after $new
+    $newPath = Save-Fixture $new "after$($script:caseNumber).dll"
+
+    return & $nextVersion -RepoRoot $repo -Assembly $newPath -PreviousAssembly $oldPath `
+                          -CurrentVersion '1.0.0' -CecilPath $cecil
+}
+
+function Check-Level($what, $expected, [scriptblock]$before, [scriptblock]$after) {
+    $v = Get-Verdict $before $after
+    Same $what $v.Level $expected
+}
+
+# What each type in a case refers to, written once.
+function Str($asm) { return $asm.MainModule.TypeSystem.String }
+function Int($asm) { return $asm.MainModule.TypeSystem.Int32 }
+
+$onePublicMethod = { param($a) $t = Add-Class $a 'Api'; [void](Add-Method $t 'Run' 'public' -params @(Str $a) -return (Int $a)) }
+
+Check-Level 'an identical surface says nothing about the version' 'none' $onePublicMethod $onePublicMethod
+
+# ---- Methods
+
+Check-Level 'a public method removed is a major' 'major' `
+    { param($a) $t = Add-Class $a 'Api'; [void](Add-Method $t 'Run'); [void](Add-Method $t 'Stop') } `
+    { param($a) $t = Add-Class $a 'Api'; [void](Add-Method $t 'Run') }
+
+Check-Level 'a public method added alone is a minor' 'minor' `
+    { param($a) $t = Add-Class $a 'Api'; [void](Add-Method $t 'Run') } `
+    { param($a) $t = Add-Class $a 'Api'; [void](Add-Method $t 'Run'); [void](Add-Method $t 'Stop') }
+
+Check-Level 'a changed parameter type is a major, being a removal and an addition' 'major' `
+    { param($a) $t = Add-Class $a 'Api'; [void](Add-Method $t 'Run' 'public' -params @(Str $a)) } `
+    { param($a) $t = Add-Class $a 'Api'; [void](Add-Method $t 'Run' 'public' -params @(Int $a)) }
+
+Check-Level 'a changed return type is a major' 'major' `
+    { param($a) $t = Add-Class $a 'Api'; [void](Add-Method $t 'Run' 'public' -return (Str $a)) } `
+    { param($a) $t = Add-Class $a 'Api'; [void](Add-Method $t 'Run' 'public' -return (Int $a)) }
+
+Check-Level 'an instance method made static is a major' 'major' `
+    { param($a) $t = Add-Class $a 'Api'; [void](Add-Method $t 'Run') } `
+    { param($a) $t = Add-Class $a 'Api'; [void](Add-Method $t 'Run' 'public' -static) }
+
+Check-Level 'a generic method gaining a type parameter is a major' 'major' `
+    { param($a) $t = Add-Class $a 'Api'; [void](Add-Method $t 'Run' 'public' -generics 1) } `
+    { param($a) $t = Add-Class $a 'Api'; [void](Add-Method $t 'Run' 'public' -generics 2) }
+
+# ---- What counts as surface
+
+Check-Level 'a protected method removed is a major: a subclass binds to it' 'major' `
+    { param($a) $t = Add-Class $a 'Api'; [void](Add-Method $t 'Hook' 'family') } `
+    { param($a) $t = Add-Class $a 'Api' }
+
+Check-Level 'a private method removed is not surface' 'none' `
+    { param($a) $t = Add-Class $a 'Api'; [void](Add-Method $t 'Run'); [void](Add-Method $t 'Helper' 'private') } `
+    { param($a) $t = Add-Class $a 'Api'; [void](Add-Method $t 'Run') }
+
+Check-Level 'an internal method removed is not surface' 'none' `
+    { param($a) $t = Add-Class $a 'Api'; [void](Add-Method $t 'Run'); [void](Add-Method $t 'Helper' 'internal') } `
+    { param($a) $t = Add-Class $a 'Api'; [void](Add-Method $t 'Run') }
+
+Check-Level 'an internal type removed is not surface' 'none' `
+    { param($a) [void](Add-Class $a 'Api'); [void](Add-Class $a 'Inner' 'internal') } `
+    { param($a) [void](Add-Class $a 'Api') }
+
+Check-Level 'a public type removed is a major' 'major' `
+    { param($a) [void](Add-Class $a 'Api'); [void](Add-Class $a 'Other') } `
+    { param($a) [void](Add-Class $a 'Api') }
+
+Check-Level 'a public type added alone is a minor' 'minor' `
+    { param($a) [void](Add-Class $a 'Api') } `
+    { param($a) [void](Add-Class $a 'Api'); [void](Add-Class $a 'Other') }
+
+# ---- Fields
+
+Check-Level 'a public field removed is a major' 'major' `
+    { param($a) $t = Add-Class $a 'Api'; [void](Add-Field $t 'Count' (Int $a)) } `
+    { param($a) [void](Add-Class $a 'Api') }
+
+Check-Level 'a changed field type is a major' 'major' `
+    { param($a) $t = Add-Class $a 'Api'; [void](Add-Field $t 'Count' (Int $a)) } `
+    { param($a) $t = Add-Class $a 'Api'; [void](Add-Field $t 'Count' (Str $a)) }
+
+Check-Level 'a private field removed is not surface' 'none' `
+    { param($a) $t = Add-Class $a 'Api'; [void](Add-Field $t 'hidden' (Int $a) 'private') } `
+    { param($a) [void](Add-Class $a 'Api') }
+
+# The version constant is a public field whose value changes in every release. Rendering values for
+# ordinary fields would make every release a surface change and rule 1 would report a minor forever.
+Check-Level "a public const's value changing is not a change of surface" 'none' `
+    { param($a) $t = Add-Class $a 'Api'; [void](Add-Constant $t 'Version' '1.0.0') } `
+    { param($a) $t = Add-Class $a 'Api'; [void](Add-Constant $t 'Version' '1.0.1') }
+
+# ---- Enums
+
+Check-Level 'an enum renumbered with every name unchanged is a major' 'major' `
+    { param($a) [void](Add-Enum $a 'Kind' @(@('Skin', 0), @('Mode', 1))) } `
+    { param($a) [void](Add-Enum $a 'Kind' @(@('Skin', 1), @('Mode', 0))) }
+
+Check-Level 'a member added to an enum, the others unchanged, is a minor' 'minor' `
+    { param($a) [void](Add-Enum $a 'Kind' @(@('Skin', 0), @('Mode', 1))) } `
+    { param($a) [void](Add-Enum $a 'Kind' @(@('Skin', 0), @('Mode', 1), @('Both', 2))) }
+
+Check-Level 'an enum member removed is a major' 'major' `
+    { param($a) [void](Add-Enum $a 'Kind' @(@('Skin', 0), @('Mode', 1))) } `
+    { param($a) [void](Add-Enum $a 'Kind' @(,@('Skin', 0))) }
+
+Check-Level 'an enum that is not public is not surface' 'none' `
+    { param($a) [void](Add-Enum $a 'Kind' @(,@('Skin', 0)) 'internal') } `
+    { param($a) [void](Add-Enum $a 'Kind' @(,@('Skin', 5)) 'internal') }
+
+# ---- Nested types: reachable only if everything around them is
+
+Check-Level 'a public nested type removed is a major' 'major' `
+    { param($a) $t = Add-Class $a 'Api'; [void](Add-Nested $t 'Options') } `
+    { param($a) [void](Add-Class $a 'Api') }
+
+Check-Level 'a protected nested type removed is a major' 'major' `
+    { param($a) $t = Add-Class $a 'Api'; [void](Add-Nested $t 'Hooks' 'family') } `
+    { param($a) [void](Add-Class $a 'Api') }
+
+Check-Level 'a private nested type removed is not surface' 'none' `
+    { param($a) $t = Add-Class $a 'Api'; [void](Add-Nested $t 'Cache' 'private') } `
+    { param($a) [void](Add-Class $a 'Api') }
+
+Check-Level 'a public nested type inside an internal type is not surface' 'none' `
+    { param($a) $t = Add-Class $a 'Inner' 'internal'; $n = Add-Nested $t 'Options'; [void](Add-Method $n 'Run') } `
+    { param($a) [void](Add-Class $a 'Inner' 'internal') }
+
+# ---- What a type derives from and implements
+
+Check-Level 'a type that stops implementing an interface is a major' 'major' `
+    { param($a) [void](Add-Class $a 'Api' 'public' $null @('IDisposable')) } `
+    { param($a) [void](Add-Class $a 'Api') }
+
+# Over-cautious rather than exact, and pinned as it is. The interfaces are part of the type's own line
+# in the surface, so a type that gains one has a different line from the one it had, which reads as
+# the old line removed and a new one added. An addition would be a minor in strict semver; this says
+# major. A release that is numbered too high costs nothing, and the other way round is the failure
+# this rule exists for, so a change to this should be deliberate.
+Check-Level 'a type that starts implementing an interface reads as a major, the type line having changed' 'major' `
+    { param($a) [void](Add-Class $a 'Api') } `
+    { param($a) [void](Add-Class $a 'Api' 'public' $null @('IDisposable')) }
+
+Check-Level 'the interfaces listed in another order are the same surface' 'none' `
+    { param($a) [void](Add-Class $a 'Api' 'public' $null @('IDisposable', 'IComparable')) } `
+    { param($a) [void](Add-Class $a 'Api' 'public' $null @('IComparable', 'IDisposable')) }
+
+Check-Level 'a changed base type is a major' 'major' `
+    { param($a) [void](Add-Class $a 'Api') } `
+    { param($a) [void](Add-Class $a 'Api' 'public' (New-CoreType $a.MainModule 'System' 'Exception')) }
+
+# ---- The verdict carries its evidence
+
+$removal = Get-Verdict `
+    { param($a) $t = Add-Class $a 'Api'; [void](Add-Method $t 'Run'); [void](Add-Method $t 'Stop') } `
+    { param($a) $t = Add-Class $a 'Api'; [void](Add-Method $t 'Run') }
+
+True 'a major names the member that went, with a minus' `
+     (@(@($removal.Reasons) | Where-Object { $_ -match '^\s*- .*Api::Stop' }).Count -eq 1)
+True 'and says how the surface changed in numbers' `
+     (@(@($removal.Reasons) | Where-Object { $_ -match 'public surface .* 1 removed' }).Count -ge 1)
+Same 'the next version steps the major' $removal.Next '2.0.0'
+
+$addition = Get-Verdict $onePublicMethod `
+    { param($a) $t = Add-Class $a 'Api'; [void](Add-Method $t 'Run' 'public' -params @(Str $a) -return (Int $a)); [void](Add-Method $t 'Extra') }
+
+Same 'the next version after an addition steps the minor' $addition.Next '1.1.0'
 }
 finally {
     try { Remove-Item -Recurse -Force $work } catch { }
