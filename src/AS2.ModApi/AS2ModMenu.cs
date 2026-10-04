@@ -1,4 +1,6 @@
 ﻿using System;
+using System.Reflection;
+using System.Runtime.CompilerServices;
 using UnityEngine;
 
 namespace AS2.ModApi
@@ -19,17 +21,34 @@ namespace AS2.ModApi
         public static bool IsOpen { get; private set; }
 
         /// <summary>Adds an entry. Safe to call from any thread</summary>
-        // Registering the same title twice replaces the first, so a plugin that reloads is not
-        // listed twice
+        // Registering the same title twice from the same mod replaces the first, so a plugin that
+        // reloads is not listed twice. A title another mod already holds is listed as
+        // "Title (YourAssembly)" instead of taking its place #81
+        // The caller is the assembly that calls this. NoInlining is what makes that true: an inlined
+        // Register would be asked about, and would answer with, its caller's caller
+        [MethodImpl(MethodImplOptions.NoInlining)]
         public static void Register(string title, string description, Action open)
         {
-            ModMenuRegistry.Register(title, description, open);
+            ModMenuRegistry.Register(title, description, open, CallerName(Assembly.GetCallingAssembly()));
         }
 
-        /// <summary>Removes an entry by title. Safe to call from any thread</summary>
+        /// <summary>Removes the calling mod's entry by title. Safe to call from any thread</summary>
+        // Another mod's entry of the same title is left where it is #81
+        [MethodImpl(MethodImplOptions.NoInlining)]
         public static void Unregister(string title)
         {
-            ModMenuRegistry.Unregister(title);
+            ModMenuRegistry.Unregister(title, CallerName(Assembly.GetCallingAssembly()));
+        }
+
+        /// <summary>
+        /// The assembly's simple name. Not its full name, because a plugin that reloads comes back as
+        /// a new assembly with the same name and a new identity, and that is the case this exists to
+        /// recognise
+        /// </summary>
+        private static string CallerName(Assembly caller)
+        {
+            try { return caller.GetName().Name; }
+            catch { return ""; }
         }
 
         /// <summary>Opens the hub. Main thread only, unlike Register</summary>

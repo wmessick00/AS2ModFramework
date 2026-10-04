@@ -74,22 +74,14 @@ jobs:
           set -euo pipefail
 
           TAG="${INPUT_TAG:-$EVENT_TAG}"
-          if [ -z "$TAG" ]; then
-            echo "::error::No tag. This ran without a release and without the tag input."
-            exit 1
-          fi
 
-          # The tag carries the v and the Nexus version field does not. pack.ps1 forms the tag as
-          # "v$version" and names the assets without it, so both spellings are needed here.
-          VERSION="${TAG#v}"
-          if ! printf '%s' "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
-            echo "::error::$TAG does not carry a three-number version. Expected v0.2.2 and got $TAG."
-            exit 1
-          fi
+          # The rules are in tools/nexus-version.sh, where tests/Check-NexusPublish.sh runs them.
+          # It prints the two outputs, or an ::error:: annotation and a failing exit code, and tee
+          # keeps either in the log; pipefail is what lets that exit code through.
+          bash tools/nexus-version.sh "$TAG" | tee resolved.txt
 
-          echo "tag=$TAG"         >> "$GITHUB_OUTPUT"
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "Publishing $TAG as version $VERSION"
+          grep -E '^(tag|version)=' resolved.txt >> "$GITHUB_OUTPUT"
+          echo "Publishing $TAG as version $(grep '^version=' resolved.txt | cut -d= -f2)"
 
       - name: Cut the changelog out of the release body
         id: notes
@@ -99,54 +91,22 @@ jobs:
         run: |
           set -euo pipefail
 
-          BODY="$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json body --jq .body)"
-
-          # Everything above the marker, and nothing without one.
-          #
-          # This used to forward the whole body when the marker was absent, on the reasoning that
-          # something beats nothing. It does not. A release cut before pack.ps1 emitted the marker
-          # has a body that is entirely install instructions and a checksum table, and posting that
-          # as a changelog is worse than posting nothing -- it reads as though nobody looked.
-          # v0.2.2 went up that way and had to be fixed by hand on the mod page.
-          if ! printf '%s' "$BODY" | grep -qF '<!-- nexus:end -->'; then
-            echo "::error::No nexus:end marker in the body of $TAG, so there is no changelog to post."
-            echo "::error::Releases from before pack.ps1 emitted the marker need the section added to the release body by hand: a '## What changed' section, then a line containing only <!-- nexus:end -->."
-            exit 1
-          fi
-
-          CHANGELOG="${BODY%%<!-- nexus:end -->*}"
-
-          # Drop the heading. The mod page already prints "Version 0.2.2" directly above the entry,
-          # so a "What changed" heading under it is one line of nothing.
-          #
-          # Then the blank lines the heading left behind. '/./,$!d' deletes from the top until the
-          # first line with content; trailing blanks go on their own, because $( ) strips them.
-          CHANGELOG="$(printf '%s' "$CHANGELOG" \
-            | sed -e '/^#\{1,6\}[[:space:]]*What changed[[:space:]]*$/Id' \
-            | sed -e '/./,$!d')"
-
-          if [ -z "${CHANGELOG//[$' \t\r\n']/}" ]; then
-            echo "::error::The changelog for $TAG is empty. Nexus would show nothing for this version."
-            exit 1
-          fi
-
-          # Belt and braces. If the install boilerplate ever leaks past the marker again, it will
-          # carry one of these, and failing here is cheaper than editing a mod page afterwards.
-          if printf '%s' "$CHANGELOG" | grep -qiE 'Get-FileHash|Most people want|BepInEx .* is bundled'; then
-            echo "::error::The changelog for $TAG still contains install text or checksums. Check where the nexus:end marker sits in the release body."
-            exit 1
-          fi
+          # The rules -- the marker, the heading, an empty result, install text that leaked past the
+          # marker -- are in tools/nexus-changelog.sh, which tests/Check-NexusPublish.sh runs on
+          # release bodies of every shape. It writes the changelog to a file or fails with an
+          # ::error:: annotation. This is what decides what the public mod page says, and posting
+          # to it cannot be undone by running anything again.
+          gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json body --jq .body \
+            | bash tools/nexus-changelog.sh "$TAG" changelog.txt
 
           # A random delimiter, because the body is arbitrary text and a fixed one appearing inside
           # it would end the value early and let the rest of the body be read as workflow commands.
           DELIM="nexus-$(openssl rand -hex 16)"
           {
             echo "changelog<<$DELIM"
-            printf '%s\n' "$CHANGELOG"
+            cat changelog.txt
             echo "$DELIM"
           } >> "$GITHUB_OUTPUT"
-
-          echo "Changelog is $(printf '%s' "$CHANGELOG" | wc -c) bytes"
 
       - name: Build the upload list
         id: targets
@@ -156,88 +116,16 @@ jobs:
           VERSION: ${{ steps.resolve.outputs.version }}
         run: |
           set -euo pipefail
-          CONFIG=.github/nexus-targets.json
 
-          MOD_ID="$(jq -r '.mod_id' "$CONFIG")"
-          if [ "$MOD_ID" = "0" ] || [ "$MOD_ID" = "null" ]; then
-            echo "::error::$CONFIG still has mod_id 0. Fill in the real ids before publishing."
-            exit 1
-          fi
-
-          # A slot left at 0 is the unfilled placeholder, not a slot number. Uploading against it
-          # would either fail obscurely inside the action or write to somebody else's mod.
-          UNSET="$(jq -r '[.files[] | select(.file_id == 0) | .asset] | join(", ")' "$CONFIG")"
-          if [ -n "$UNSET" ]; then
-            echo "::error::$CONFIG has no file_id for: $UNSET. Create the file slots on Nexus first."
-            exit 1
-          fi
-
-          # Exactly one entry owns the changelog and the page version. Two would post the same text
-          # twice on one mod page.
-          for field in changelog update_mod_version; do
-            COUNT="$(jq -r --arg f "$field" '[.files[] | select(.[$f] == true)] | length' "$CONFIG")"
-            if [ "$COUNT" != "1" ]; then
-              echo "::error::$COUNT entries in $CONFIG set $field. Exactly one has to."
-              exit 1
-            fi
-          done
-
-          # category defaults to main when an entry omits it, matching the action's own default, so
-          # an entry written before that field existed keeps behaving the way it did.
-          JSON="$(jq -c --arg v "$VERSION" --argjson mod "$MOD_ID" '
-            [ .files[] | {
-                asset,
-                file_id,
-                mod_id: $mod,
-                # filename is the release asset, verbatim. It is what gets uploaded and what a
-                # browser saves, and it carries the version so a download lands in a folder beside
-                # the last two and stays tellable apart.
-                #
-                # display_name is what the mod page calls the entry, and it carries neither the
-                # version nor the extension. Nexus prints the version in its own column next to the
-                # name, so repeating it reads as a stutter, and .zip is not part of a name. The
-                # action defaults this to filename, so leaving it out gets both back.
-                # display_name is overridable per entry, because the name on the page is a choice
-                # somebody may already have made when they created the slot by hand. Falling back to
-                # the asset name would quietly rename their file on the next release.
-                filename: "\(.asset)-\($v).zip",
-                display_name: (.display_name // .asset),
-
-                category: (.category // "main"),
-                changelog,
-                update_mod_version,
-                primary_mod_manager_download
-            } ]' "$CONFIG")"
-
-          # Every named asset has to be on the release already. A typo in asset, or a package
-          # pack.ps1 stopped emitting, would otherwise reach the upload job as a missing file after
-          # the approval has already been given.
           gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name' > on-release.txt
-          for f in $(printf '%s' "$JSON" | jq -r '.[].filename'); do
-            if ! grep -qxF "$f" on-release.txt; then
-              echo "::error::$f is named in $CONFIG but is not among the assets on $TAG."
-              exit 1
-            fi
-          done
 
-          # And the other direction, which is a warning rather than an error.
-          #
-          # A slot has to be created by hand before it can be written to, so a release carrying a
-          # package with no slot yet is a real intermediate state, not a mistake. Skipping it
-          # silently is what would be the mistake: the zip is on GitHub, nobody on Nexus can see it,
-          # and nothing said so.
-          while read -r asset; do
-            case "$asset" in
-              *.zip) ;;
-              *) continue ;;
-            esac
-            if ! printf '%s' "$JSON" | jq -e --arg a "$asset" 'any(.[]; .filename == $a)' > /dev/null; then
-              echo "::warning::$asset is on the release but has no file slot in $CONFIG, so it is not going to Nexus."
-            fi
-          done < on-release.txt
+          # What is checked -- a placeholder id, who owns the changelog, every named asset being on
+          # the release, an asset with no slot -- and how the list is built, are in
+          # tools/nexus-targets.sh, which tests/Check-NexusPublish.sh runs against configurations no
+          # real release would have.
+          bash tools/nexus-targets.sh .github/nexus-targets.json "$VERSION" "$TAG" on-release.txt targets.json
 
-          echo "json=$JSON" >> "$GITHUB_OUTPUT"
-          printf '%s' "$JSON" | jq .
+          echo "json=$(cat targets.json)" >> "$GITHUB_OUTPUT"
 
   upload:
     name: ${{ matrix.target.asset }}

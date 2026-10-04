@@ -93,6 +93,20 @@ jobs:
         shell: powershell
         run: .\tests\Check-ReleaseTooling.ps1
 
+      # The two release scripts that read an assembly with Mono.Cecil, run against small assemblies
+      # the check writes for itself: verify-invariants.ps1, which pack.ps1 will not archive past,
+      # and the public-surface comparison in Get-NextVersion.ps1. Neither could be exercised on a
+      # runner, since the real AS2.ModApi.dll cannot be built there.
+      #
+      # Mono.Cecil comes from the BepInEx zip tools/pack.ps1 pins, by the version and the hash it
+      # states, and not from a copy kept here. It is 640 KB, downloaded once for the job and checked
+      # against the hash before a byte of it is used. A new pin in pack.ps1 is the only change
+      # needed for this to follow it.
+      - name: The release scripts that read an assembly
+        if: '!cancelled()'
+        shell: powershell
+        run: .\tests\Check-Assemblies.ps1
+
       # The archive layout: the separator, the marker entries a Vortex extension recognises a
       # download by, and the three files the community patch owns.
       #
@@ -105,3 +119,23 @@ jobs:
         if: '!cancelled()'
         shell: powershell
         run: .\tests\Check-ArchiveLayout.ps1
+
+  # The logic .github/workflows/publish-to-nexus.yml runs before it posts to the live mod page: which
+  # part of the release body is the changelog, whether nexus-targets.json can be trusted, what the
+  # version is. It used to be inline in that workflow, where it could only be run by publishing a
+  # release, and a mistake there lands on a public page that no re-run takes back (#80). It is in
+  # tools/nexus-*.sh now.
+  #
+  # Ubuntu, unlike the job above, and for the opposite reason. These are bash, jq and GNU sed, which is
+  # what publish-to-nexus.yml itself runs on, so this exercises the same tools as the release does.
+  # None of it touches a path, so there is no Windows semantics here to be wrong about.
+  nexus-publish:
+    name: Nexus publish logic
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: The changelog, the targets and the version
+        run: bash tests/Check-NexusPublish.sh

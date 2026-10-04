@@ -261,7 +261,12 @@ function Get-PublicSurface($assemblyPath) {
             }
         }
 
-        return $set
+        # The comma is load-bearing, as it is in Get-AllTypes: PowerShell unrolls a collection on
+        # return. A surface of several members came back as an array, which happened to work, but one
+        # member came back as a bare string and none as $null. Rule 1 then read .Count off a string
+        # or off nothing and threw, and asked a string whether it Contains a member, which is a
+        # substring test rather than set membership. #83.
+        return ,$set
     }
     finally {
         $module.Dispose()

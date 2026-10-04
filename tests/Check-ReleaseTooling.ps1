@@ -303,6 +303,145 @@ Same 'blank titles contribute nothing' (Format-ChangeList @('', '   ')) ''
 # The empty case is what pack.ps1 refuses a publish on, so it has to be empty rather than "- ".
 True 'an empty list is falsy, which is what the publish guard tests' (-not (Format-ChangeList @()))
 
+# ---- The change list, end to end: what happens when a title cannot be found --------------------
+#
+# Issue #82. The titles come from one gh call that returns a page, and a merged pull request that
+# was not on the page, or not reachable at all, was dropped without a word: the release body went to
+# Nexus one entry short. These run the real script, in this process, against a real repository with
+# merge commits in it and a gh that is a function. Git is not faked, because what it is asked is
+# the merge log and the log is the fixture.
+
+Write-Output ''
+Write-Output 'Looking up pull request titles'
+
+# Where a real git is wanted. A repository with a tag, and one merge commit for each pull request.
+$clWork = Join-Path ([IO.Path]::GetTempPath()) ('as2-changelist-' + [Guid]::NewGuid().ToString('N').Substring(0, 8))
+New-Item -ItemType Directory -Force -Path $clWork | Out-Null
+
+function Invoke-Git([string[]]$arguments) {
+    & git -C $clRepo -c user.email=check@example.invalid -c user.name=check @arguments 2>&1 | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw "git $($arguments -join ' ') failed in the fixture repository" }
+}
+
+function New-MergedRepository([int[]]$numbers) {
+    $script:clRepo = Join-Path $clWork ('repo' + (Get-Random))
+    New-Item -ItemType Directory -Force -Path $clRepo | Out-Null
+
+    Invoke-Git @('init', '-q')
+    Invoke-Git @('commit', '-q', '--allow-empty', '-m', 'release')
+    Invoke-Git @('tag', 'v1.0.0')
+    $main = (& git -C $clRepo rev-parse --abbrev-ref HEAD).Trim()
+
+    foreach ($n in $numbers) {
+        Invoke-Git @('checkout', '-q', '-b', "work-$n")
+        Invoke-Git @('commit', '-q', '--allow-empty', '-m', "work on $n")
+        Invoke-Git @('checkout', '-q', $main)
+        Invoke-Git @('merge', '-q', '--no-ff', '-m', "Merge pull request #$n from owner/work-$n", "work-$n")
+    }
+}
+
+# The gh the script sees. A function wins over an executable of the same name, and the script asks
+# for it by name; the state it answers from is global because the script runs in a scope of its own.
+function global:gh {
+    $a = @($args)
+    $state = $global:ChangeListGh
+    $state.Calls.Add(($a -join ' '))
+    $global:LASTEXITCODE = 0
+
+    if ($a[0] -eq 'pr' -and $a[1] -eq 'list') {
+        if ($state.ListFails) { $global:LASTEXITCODE = 1; return }
+        if ($state.ListRaw)   { return $state.ListRaw }
+        return (ConvertTo-Json -Compress -InputObject @($state.OnThePage.GetEnumerator() |
+                    ForEach-Object { [pscustomobject]@{ number = $_.Key; title = $_.Value } }))
+    }
+
+    if ($a[0] -eq 'pr' -and $a[1] -eq 'view') {
+        $n = [int]$a[2]
+        if ($state.Elsewhere.ContainsKey($n)) { return (ConvertTo-Json -Compress -InputObject ([pscustomobject]@{ title = $state.Elsewhere[$n] })) }
+        $global:LASTEXITCODE = 1
+        return
+    }
+
+    $global:LASTEXITCODE = 1
+}
+
+function Use-Gh($onThePage = @{}, $elsewhere = @{}, [switch]$listFails, $listRaw = $null) {
+    $global:ChangeListGh = @{
+        Calls = New-Object System.Collections.Generic.List[string]
+        OnThePage = $onThePage
+        Elsewhere = $elsewhere
+        ListFails = [bool]$listFails
+        ListRaw = $listRaw
+    }
+}
+
+function Get-ChangeListResult($slug = 'owner/repo') {
+    $warnings = $null
+    $arguments = @{ RepoRoot = $clRepo; FromTag = 'v1.0.0'; WarningVariable = 'warnings'; WarningAction = 'SilentlyContinue' }
+    if ($slug) { $arguments.Slug = $slug }
+
+    $text = & $changeListScript @arguments
+    return [pscustomobject]@{ Text = "$text"; Warnings = @($warnings | ForEach-Object { "$_" }) }
+}
+
+try {
+
+    New-MergedRepository @(12, 13, 150)
+
+    # Everything on the page: the ordinary case, and quiet.
+    Use-Gh @{ 12 = 'Add the first thing'; 13 = 'Fix the second thing'; 150 = 'Lock the third thing' }
+    $r = Get-ChangeListResult
+    Same 'every title found is one bullet each' ($r.Text -split "`n").Count 3
+    True 'and they are the titles, newest merge first' ($r.Text -like '*- Lock the third thing*')
+    Same 'and a clean lookup warns of nothing' $r.Warnings.Count 0
+    Same 'and costs one call, not one for each pull request' @($global:ChangeListGh.Calls | Where-Object { $_ -like 'pr list*' }).Count 1
+    Same 'because nothing needed asking for by number' @($global:ChangeListGh.Calls | Where-Object { $_ -like 'pr view*' }).Count 0
+
+    # Past the page. The list holds only the most recent --limit, and a pull request older than that
+    # was dropped from the release. It is asked for now.
+    Use-Gh @{ 12 = 'Add the first thing'; 13 = 'Fix the second thing' } @{ 150 = 'Lock the third thing, from past the page' }
+    $r = Get-ChangeListResult
+    True 'a pull request the page did not hold is still in the list' ($r.Text -like '*- Lock the third thing, from past the page*')
+    Same 'and nothing was dropped' ($r.Text -split "`n").Count 3
+    Same 'and it was asked for by number, once' @($global:ChangeListGh.Calls | Where-Object { $_ -like 'pr view 150*' }).Count 1
+    Same 'and the page was still one call' @($global:ChangeListGh.Calls | Where-Object { $_ -like 'pr list*' }).Count 1
+    Same 'and nothing needed warning about' $r.Warnings.Count 0
+
+    # Not anywhere. Left out, and said.
+    Use-Gh @{ 12 = 'Add the first thing'; 13 = 'Fix the second thing' } @{}
+    $r = Get-ChangeListResult
+    Same 'a pull request that cannot be found anywhere is left out' ($r.Text -split "`n").Count 2
+    Same 'and exactly one warning says so' $r.Warnings.Count 1
+    True 'naming the pull request' ($r.Warnings.Count -eq 1 -and $r.Warnings[0] -like '*#150*')
+    True 'and what that means for the list' ($r.Warnings.Count -eq 1 -and $r.Warnings[0] -like '*not in the change list*')
+
+    # The whole lookup failing is the other way to lose titles, and it was silent as well.
+    Use-Gh -listFails
+    $r = Get-ChangeListResult
+    True 'a gh that cannot list falls back to commit subjects, as it always did' ($r.Text -like '*work on*')
+    True 'and says why the titles are not there' (@($r.Warnings | Where-Object { $_ -like '*could not list*' }).Count -eq 1)
+    Same 'without a further warning for every pull request, which would bury it' $r.Warnings.Count 1
+
+    Use-Gh -listRaw 'this is not json'
+    $r = Get-ChangeListResult
+    True 'an answer that is not JSON falls back too' ($r.Text -like '*work on*')
+    True 'and says so' (@($r.Warnings | Where-Object { $_ -like '*not a list of pull requests*' }).Count -eq 1)
+
+    # No Slug is a choice, not a failure: the script says in its own help that only the commit
+    # fallback runs then.
+    Use-Gh
+    $r = Get-ChangeListResult -slug ''
+    True 'with no Slug the commit subjects are used' ($r.Text -like '*work on*')
+    Same 'and nothing is warned about, since nobody asked for titles' $r.Warnings.Count 0
+    Same 'and gh was not called at all' $global:ChangeListGh.Calls.Count 0
+
+}
+finally {
+    Remove-Item function:global:gh -ErrorAction SilentlyContinue
+    Remove-Variable -Name ChangeListGh -Scope Global -ErrorAction SilentlyContinue
+    try { Remove-Item -Recurse -Force $clWork } catch { }
+}
+
 # ---- Summary -----------------------------------------------------------------------------------
 
 Write-Output ''
