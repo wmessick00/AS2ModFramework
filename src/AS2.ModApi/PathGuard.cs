@@ -1,6 +1,8 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Runtime.InteropServices;
+using System.Text;
 
 namespace AS2.ModApi
 {
@@ -230,6 +232,19 @@ namespace AS2.ModApi
                     return null;
                 }
 
+                // #84. The check above asks the disk about the path now, and the open it follows may
+                // have gone through a link that is no longer there. This asks the handle
+                string lives = LivesOutside(stream, rootPrefix);
+                if (lives != null)
+                {
+                    stream.Dispose();
+                    ModApiPlugin.Log.LogWarning(
+                        "Refusing to read '" + fullPath + "': the file that was opened is at '" + lives
+                        + "', outside the install, so a link was followed on the way to it even though "
+                        + "none can be seen there now.");
+                    return null;
+                }
+
                 return stream;
             }
             catch (Exception e)
@@ -244,5 +259,160 @@ namespace AS2.ModApi
             }
         }
 
+        // ---- Where the handle really is -----------------------------------------------------------
+        //
+        // #84. OpenContained opens first so that nothing can be swapped in under the handle, then asks
+        // LinkedSegment whether any component of the path is a link. That second question is about
+        // the path as it is now, and the open was about the path as it was a moment earlier. A parent
+        // that was a junction at the open and an ordinary folder by the check -- another process, a
+        // Workshop sync, a script on a Proton install, swapping it in and back within milliseconds --
+        // makes the open follow the link and the check find nothing. The caller is handed a stream on
+        // a file outside the install, proved contained. It is the mirror of #56: that one was a link
+        // swapped in after the check, this is one swapped out before it
+        //
+        // Nothing that looks at the path can close this, because the path is the thing that changed
+        // back. The handle is the one witness that did not. Windows will say where an open handle
+        // really lives, and that answer does not depend on how the name resolves afterwards
+        //
+        // The root is asked the same way, and the handle is compared to that rather than to the
+        // string the caller gave. A Steam library on a second drive reached through a junction is
+        // somebody's ordinary setup, the root is not ours to judge (see LinkedSegment), and a name
+        // spelled with 8.3 short names or a mapped drive letter has a different spelling from what
+        // the OS reports for it. The OS spells both the same way
+        //
+        // Both lookups are replaceable, for the same reason FilePresence's probe is in the sibling
+        // repository: the case worth checking is a link that has already gone, and nobody can stage
+        // that on a runner. And both answer null when they cannot tell -- off Windows, where there is
+        // no such call, or when the call fails -- in which case this check says nothing and the one
+        // above stands alone, exactly as it did. A lookup that cannot answer is not a reason to
+        // refuse every read the API makes
+
+        /// <summary>Where an open file really is, or null when that cannot be told</summary>
+        internal static Func<FileStream, string> HandlePathOf = NativeHandlePath;
+
+        /// <summary>Where a folder really is, spelled the way <see cref="HandlePathOf"/> spells it, or null</summary>
+        internal static Func<string, string> FolderPathOf = NativeFolderPath;
+
+        /// <summary>The place the handle really is when that is not inside the root, or null</summary>
+        // Null for "inside it" and for "cannot tell". Containment is the whole of what is asked: the
+        // guarantee is that a key cannot reach outside the install. Whether the file is spelled the
+        // way the caller wrote it is not, and asking would refuse a path that carries a short name
+        private static string LivesOutside(FileStream stream, string rootPrefix)
+        {
+            string actual, root;
+            try
+            {
+                actual = HandlePathOf(stream);
+                if (actual == null) return null;
+
+                root = FolderPathOf(rootPrefix);
+                if (root == null) return null;
+            }
+            catch
+            {
+                return null;
+            }
+
+            return IsInside(actual, root) ? null : actual;
+        }
+
+        /// <summary>Whether a path is under a folder, comparing both the way Windows does</summary>
+        internal static bool IsInside(string path, string folder)
+        {
+            string prefix = Separated(folder).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
+            return Separated(path).StartsWith(prefix, StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static string Separated(string path)
+        {
+            return path.Replace(Path.AltDirectorySeparatorChar, Path.DirectorySeparatorChar);
+        }
+
+        /// <summary>Windows's own spelling of a path, without the prefix it adds, or null if it is not one we know</summary>
+        // The call answers \\?\C:\dir\file, and \\?\UNC\server\share\file for a share. Anything
+        // else is not read: a string this does not recognise is not one to compare against
+        internal static string WithoutPrefix(string raw)
+        {
+            if (raw == null) return null;
+
+            const string Unc = @"\\?\UNC\";
+            const string Dos = @"\\?\";
+
+            if (raw.StartsWith(Unc, StringComparison.OrdinalIgnoreCase)) return @"\\" + raw.Substring(Unc.Length);
+
+            if (raw.StartsWith(Dos, StringComparison.Ordinal))
+            {
+                string rest = raw.Substring(Dos.Length);
+                bool drive = rest.Length >= 3 && char.IsLetter(rest[0]) && rest[1] == ':' && rest[2] == '\\';
+                return drive ? rest : null;
+            }
+
+            return null;
+        }
+
+        private static bool OnWindows { get { return Path.DirectorySeparatorChar == '\\'; } }
+
+        private static string NativeHandlePath(FileStream stream)
+        {
+            if (!OnWindows) return null;
+
+            try { return FinalPath(stream.SafeFileHandle.DangerousGetHandle()); }
+            catch { return null; }
+        }
+
+        private static string NativeFolderPath(string folder)
+        {
+            if (!OnWindows) return null;
+
+            IntPtr handle = IntPtr.Zero;
+            try
+            {
+                // No access at all, which is all a final path needs, and every sharing mode so that
+                // asking never fails because somebody else has the folder open. A folder is only
+                // opened with the backup-semantics flag
+                handle = CreateFileW(folder, 0, 7, IntPtr.Zero, 3, 0x02000000, IntPtr.Zero);
+                if (handle == InvalidHandle) { handle = IntPtr.Zero; return null; }
+
+                return FinalPath(handle);
+            }
+            catch
+            {
+                return null;
+            }
+            finally
+            {
+                if (handle != IntPtr.Zero) CloseHandle(handle);
+            }
+        }
+
+        private static string FinalPath(IntPtr handle)
+        {
+            var buffer = new StringBuilder(512);
+            uint length = GetFinalPathNameByHandleW(handle, buffer, (uint)buffer.Capacity, 0);
+
+            // A result at or past the buffer is the size it needed, counting the terminator
+            if (length >= buffer.Capacity)
+            {
+                buffer = new StringBuilder((int)length + 1);
+                length = GetFinalPathNameByHandleW(handle, buffer, (uint)buffer.Capacity, 0);
+            }
+
+            if (length == 0 || length >= buffer.Capacity) return null;
+
+            return WithoutPrefix(buffer.ToString());
+        }
+
+        private static readonly IntPtr InvalidHandle = new IntPtr(-1);
+
+        [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        private static extern uint GetFinalPathNameByHandleW(IntPtr file, StringBuilder path, uint length, uint flags);
+
+        [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        private static extern IntPtr CreateFileW(string name, uint access, uint share, IntPtr security,
+                                                  uint disposition, uint flags, IntPtr template);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static extern bool CloseHandle(IntPtr handle);
     }
 }
