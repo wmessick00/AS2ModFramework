@@ -1,0 +1,5 @@
+# Shell scripts run on Linux, in .github/workflows/publish-to-nexus.yml, and have to keep LF line ends
+# on a Windows checkout too. With core.autocrlf on, as Git for Windows ships it, bash would be handed a
+# carriage return at the end of every line and fail on the first one. tools/nexus-*.sh and
+# tests/Check-NexusPublish.sh are the scripts this is for.
+*.sh text eol=lf
