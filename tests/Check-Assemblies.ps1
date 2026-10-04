@@ -134,6 +134,17 @@ Add-Type -Path $cecil | Out-Null
 Write-Output "Using $cecil"
 Write-Output ''
 
+# Windows PowerShell 5.1 throws InvalidCastException ("Specified cast is not valid") on -bor between
+# two values of an enum whose underlying type is unsigned 16-bit, which is what Cecil's
+# MethodAttributes and FieldAttributes are. PowerShell 7 does not, so it passed there and failed in CI,
+# which runs 5.1 because that is what a maintainer cutting a release runs. The flags are combined as
+# integers and turned back into the enum.
+function Join-Flags([Type]$type, $flags) {
+    $bits = 0
+    foreach ($f in $flags) { $bits = $bits -bor [int]$f }
+    return [Enum]::ToObject($type, $bits)
+}
+
 # ---- Writing a fixture assembly --------------------------------------------------------------------
 #
 # Nothing here is ever run. The scripts under test read IL, so a method body is a few call
@@ -151,7 +162,7 @@ function New-Fixture($name) {
 
 function Add-PublicClass($asm, $namespace, $name) {
     $module = $asm.MainModule
-    $attrs = [Mono.Cecil.TypeAttributes]::Public -bor [Mono.Cecil.TypeAttributes]::Abstract -bor [Mono.Cecil.TypeAttributes]::Sealed
+    $attrs = Join-Flags ([Mono.Cecil.TypeAttributes]) @([Mono.Cecil.TypeAttributes]::Public, [Mono.Cecil.TypeAttributes]::Abstract, [Mono.Cecil.TypeAttributes]::Sealed)
     $t = New-Object Mono.Cecil.TypeDefinition($namespace, $name, $attrs, $module.TypeSystem.Object)
     $module.Types.Add($t)
     return $t
@@ -160,7 +171,7 @@ function Add-PublicClass($asm, $namespace, $name) {
 # A static method on the type whose body makes the given calls, in order, and discards each result.
 function Add-CallingMethod($type, $name, $callees) {
     $module = $type.Module
-    $attrs = [Mono.Cecil.MethodAttributes]::Public -bor [Mono.Cecil.MethodAttributes]::Static
+    $attrs = Join-Flags ([Mono.Cecil.MethodAttributes]) @([Mono.Cecil.MethodAttributes]::Public, [Mono.Cecil.MethodAttributes]::Static)
     $m = New-Object Mono.Cecil.MethodDefinition($name, $attrs, $module.TypeSystem.Void)
     $il = $m.Body.GetILProcessor()
     foreach ($callee in $callees) {
@@ -242,7 +253,7 @@ function Add-Method($type, $name, [string]$visibility = 'public', [switch]$stati
         'internal' { [Mono.Cecil.MethodAttributes]::Assembly }
         default    { [Mono.Cecil.MethodAttributes]::Private }
     }
-    if ($static) { $attrs = $attrs -bor [Mono.Cecil.MethodAttributes]::Static }
+    if ($static) { $attrs = Join-Flags ([Mono.Cecil.MethodAttributes]) @($attrs, [Mono.Cecil.MethodAttributes]::Static) }
     if ($null -eq $return) { $return = $module.TypeSystem.Void }
 
     $m = New-Object Mono.Cecil.MethodDefinition($name, $attrs, $return)
@@ -265,7 +276,7 @@ function Add-Field($type, $name, $fieldType, [string]$visibility = 'public', [sw
         'family' { [Mono.Cecil.FieldAttributes]::Family }
         default  { [Mono.Cecil.FieldAttributes]::Private }
     }
-    if ($static) { $attrs = $attrs -bor [Mono.Cecil.FieldAttributes]::Static }
+    if ($static) { $attrs = Join-Flags ([Mono.Cecil.FieldAttributes]) @($attrs, [Mono.Cecil.FieldAttributes]::Static) }
     $f = New-Object Mono.Cecil.FieldDefinition($name, $attrs, $fieldType)
     $type.Fields.Add($f)
     return $f
@@ -274,8 +285,9 @@ function Add-Field($type, $name, $fieldType, [string]$visibility = 'public', [sw
 # A public const string: a literal static field with a value. Its value is exactly what the surface
 # must not render, since the version constant is one and changes in every release.
 function Add-Constant($type, $name, $value) {
-    $attrs = [Mono.Cecil.FieldAttributes]::Public -bor [Mono.Cecil.FieldAttributes]::Static -bor
-             [Mono.Cecil.FieldAttributes]::Literal -bor [Mono.Cecil.FieldAttributes]::HasDefault
+    $attrs = Join-Flags ([Mono.Cecil.FieldAttributes]) @(
+        [Mono.Cecil.FieldAttributes]::Public, [Mono.Cecil.FieldAttributes]::Static,
+        [Mono.Cecil.FieldAttributes]::Literal, [Mono.Cecil.FieldAttributes]::HasDefault)
     $f = New-Object Mono.Cecil.FieldDefinition($name, $attrs, $type.Module.TypeSystem.String)
     $f.Constant = $value
     $type.Fields.Add($f)
@@ -285,16 +297,18 @@ function Add-Constant($type, $name, $value) {
 # An enum: System.Enum as its base, the value__ field every enum has, and one literal per member.
 function Add-Enum($asm, $name, $members, [string]$visibility = 'public') {
     $module = $asm.MainModule
-    $attrs = [Mono.Cecil.TypeAttributes]::Sealed -bor
-             $(if ($visibility -eq 'public') { [Mono.Cecil.TypeAttributes]::Public } else { [Mono.Cecil.TypeAttributes]::NotPublic })
+    $visible = if ($visibility -eq 'public') { [Mono.Cecil.TypeAttributes]::Public } else { [Mono.Cecil.TypeAttributes]::NotPublic }
+    $attrs = Join-Flags ([Mono.Cecil.TypeAttributes]) @([Mono.Cecil.TypeAttributes]::Sealed, $visible)
     $t = New-Object Mono.Cecil.TypeDefinition('Fixture', $name, $attrs, (New-CoreType $module 'System' 'Enum'))
 
-    $special = [Mono.Cecil.FieldAttributes]::Public -bor [Mono.Cecil.FieldAttributes]::SpecialName -bor [Mono.Cecil.FieldAttributes]::RTSpecialName
+    $special = Join-Flags ([Mono.Cecil.FieldAttributes]) @(
+        [Mono.Cecil.FieldAttributes]::Public, [Mono.Cecil.FieldAttributes]::SpecialName, [Mono.Cecil.FieldAttributes]::RTSpecialName)
     $t.Fields.Add((New-Object Mono.Cecil.FieldDefinition('value__', $special, $module.TypeSystem.Int32)))
 
     foreach ($pair in $members) {
-        $flags = [Mono.Cecil.FieldAttributes]::Public -bor [Mono.Cecil.FieldAttributes]::Static -bor
-                 [Mono.Cecil.FieldAttributes]::Literal -bor [Mono.Cecil.FieldAttributes]::HasDefault
+        $flags = Join-Flags ([Mono.Cecil.FieldAttributes]) @(
+            [Mono.Cecil.FieldAttributes]::Public, [Mono.Cecil.FieldAttributes]::Static,
+            [Mono.Cecil.FieldAttributes]::Literal, [Mono.Cecil.FieldAttributes]::HasDefault)
         $f = New-Object Mono.Cecil.FieldDefinition($pair[0], $flags, $t)
         $f.Constant = [int]$pair[1]
         $t.Fields.Add($f)
