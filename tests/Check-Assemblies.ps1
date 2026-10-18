@@ -363,13 +363,14 @@ $calls = Add-PublicClass $asm 'Fixture' 'Calls'
 $module = $asm.MainModule
 
 [void](Add-CallingMethod $calls 'Run' @(
-    # On the allowlist exactly as reviewed: global namespace, not nested.
+    # On the allowlist exactly as reviewed. Mode is nested in ModeSelect in the real game.
     (New-GameCall $module '' 'UIManager' 'Exists'),
-    (New-GameCall $module '' 'Mode' 'get_relativePath'),
+    (New-GameCall $module '' 'Mode' 'get_relativePath' 'ModeSelect'),
     # A generic type, which is matched by its definition and not by its instantiation.
     (New-GameCall $module '' 'Messenger`1' 'AddListener' '' $true),
 
     # The same simple names and the same members, and nobody has looked at any of them.
+    (New-GameCall $module '' 'Mode' 'get_relativePath'),
     (New-GameCall $module 'Other.Namespace' 'Mode' 'get_relativePath'),
     (New-GameCall $module '' 'Mode' 'get_relativePath' 'SomeOuterType'),
     (New-GameCall $module 'Another' 'UIManager' 'Exists'),
@@ -389,17 +390,19 @@ foreach ($m in [regex]::Matches($result.Text, 'calls (\S+), which is not on the 
 True 'the script reports violations, and says so with a failing exit code' ($result.ExitCode -eq 1)
 
 False 'a call on the allowlist, as reviewed, is accepted'              ($flagged -contains 'UIManager::Exists')
-False 'a second call on the allowlist, as reviewed, is accepted'       ($flagged -contains 'Mode::get_relativePath')
+False 'the real nested mode getter is accepted'                      ($flagged -contains 'ModeSelect/Mode::get_relativePath')
 False 'a generic type is matched by its definition, as before'         ($flagged -contains 'Messenger`1::AddListener')
 
 True 'a type of the same name in another namespace is not the reviewed one' `
      ($flagged -contains 'Other.Namespace.Mode::get_relativePath')
+True 'a top-level Mode is not the reviewed nested type' `
+     ($flagged -contains 'Mode::get_relativePath')
 True 'a type of the same name nested in another type is not the reviewed one' `
      ($flagged -contains 'SomeOuterType/Mode::get_relativePath')
 True 'a second UIManager in another namespace is not the reviewed one' `
      ($flagged -contains 'Another.UIManager::Exists')
 True 'a call that was never on the list is still refused' ($flagged -contains 'UIManager::Destroy')
-Same 'and nothing else was flagged by rule 4' $flagged.Count 4
+Same 'and nothing else was flagged by rule 4' $flagged.Count 5
 
 # The message is what a maintainer copies into the allowlist, so it has to be the key as written.
 True 'the message names the full type, so that an entry for it is a copy and paste' `

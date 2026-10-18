@@ -74,8 +74,8 @@ Add-Type -Path $CecilPath | Out-Null
 # nothing. "Type::Method" against the game's own assembly.
 #
 # "Type" is the type's FULL name: its namespace and any types it is nested in, as Cecil spells it
-# ("Outer/Inner"). Every type below sits in the global namespace and is not nested, which is why
-# each reads as a bare name, and that is a fact about the game, not a shorthand. Matching on the
+# ("Outer/Inner"). The types below sit in the global namespace; Mode is nested in ModeSelect,
+# so its key is "ModeSelect/Mode", not "Mode". Matching on the
 # simple name alone let any type that happened to share one with an entry here, in another
 # namespace or nested inside another type, borrow the entry's review: a second Mode, or a nested
 # UIManager, with a method called get_relativePath would have gone straight through rule 4 without
@@ -97,10 +97,14 @@ $AllowedGameCalls = @{
     'Messenger`2::AddListener'   = 'MessengerBridge, arity 2'
     'Messenger`3::AddListener'   = 'MessengerBridge, arity 3'
 
-    # AS2Events.CurrentKey. All three are accessors over a private field and all are pure reads.
+    # AS2Events.CurrentKey. CodeEditor's accessors read private fields.
     'CodeEditor::get_skinPath'   = 'AS2Events.CurrentKey fallback'
     'CodeEditor::get_modPath'    = 'AS2Events.CurrentKey fallback'
-    'Mode::get_relativePath'     = 'AS2Events.CurrentKey reads the selected mode script path'
+    # Reviewed in Assembly-CSharp with Cecil: ModeSelect.Mode.relativePath reads dir and its parent,
+    # checks the parent name with Regex.IsMatch, and returns a name or parent/name (logging on an
+    # exception). It writes no game state. Keep the enclosing type: a top-level Mode was never
+    # reviewed, and accepting it would still refuse CurrentKey's actual call during packaging.
+    'ModeSelect/Mode::get_relativePath' = 'AS2Events.CurrentKey reads the selected mode script path'
 
     # Constructing the game's own delegate types, so MessengerBridge can hand AddListener a handler
     # of the shape it demands. A delegate constructor runs no game code -- it stores a target and a
